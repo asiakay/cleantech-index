@@ -7,7 +7,7 @@ compatibility_date = "2025-06-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "cleantech_index"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "3aae89df-dec2-4a32-8819-9fc21fc3197e"
 
 # Non-secret, non-sensitive config can live here as plaintext vars.
 [vars]
