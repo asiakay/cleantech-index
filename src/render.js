@@ -45,6 +45,11 @@ background:var(--accent);color:#fff;font-weight:700}
 const statusClass = (s) =>
   s === "Operational" ? "s-op" : s === "Under Construction" ? "s-uc" : "s-pl";
 
+// Safe JSON for inline <script> blocks: unicode-escape < and > so a value like
+// "</script>" in a project name can never terminate the surrounding script tag.
+const safeJson = (obj) =>
+  JSON.stringify(obj).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
+
 /** Build the streaming <head>. Meta title uses the exact required format. */
 function head(title, description, canonical, jsonLd, wrapClass = "wrap") {
   return `<!doctype html><html lang="en"><head>
@@ -77,7 +82,7 @@ export function renderProjectPage(p, vendors, freeViewsLeft, origin) {
     `${p.state ? `, ${p.state}` : ""}${p.commercial_operation_year ? ` (COD ${p.commercial_operation_year})` : ""}.`;
   const canonical = `${origin}/project/${p.slug}`;
 
-  const jsonLd = JSON.stringify({
+  const jsonLd = safeJson({
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
@@ -133,7 +138,7 @@ export function renderDeveloperPage(dev, projects, origin) {
     `${dev.headquarters_state ? `, HQ ${dev.headquarters_state}` : ""}.`;
   const canonical = `${origin}/developer/${dev.slug}`;
 
-  const jsonLd = JSON.stringify({
+  const jsonLd = safeJson({
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [

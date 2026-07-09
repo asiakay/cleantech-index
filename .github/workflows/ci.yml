@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.0.0
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm test
@@ -27,7 +27,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          check-latest: true
           cache: npm
       - run: npm ci
       # Apply any new D1 migrations to the production database, then deploy.
