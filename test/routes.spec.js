@@ -1,8 +1,9 @@
 // End-to-end route + paywall tests through the real Worker (exports.default.fetch) with real D1.
 import { exports } from "cloudflare:workers";
 import { env } from "cloudflare:workers";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { signPayload } from "../src/cookies.js";
+import { _signTestPayload } from "../src/stripe.js";
 
 const BASE = "https://cleantech.test";
 const call = (path, init) => exports.default.fetch(new Request(BASE + path, init));
@@ -112,5 +113,96 @@ describe("3-view meter + paywall", () => {
     expect(r.status).toBe(200);
     expect(r.headers.get("set-cookie")).toBeNull(); // meter untouched
     expect(await r.text()).toContain("Member · unlimited access");
+  });
+
+  it("a tampered ct_views cookie is treated as 0 views (not blocked)", async () => {
+    // Garbage signature → verifyPayload returns null → views defaults to 0.
+    const r = await call("/project/mustang-ridge-solar", {
+      headers: { Cookie: "ct_views=tampered.invalidsignature" },
+    });
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain("2 free views left");
+  });
+
+  it("an expired session_token is ignored and the meter applies normally", async () => {
+    const expired = await signPayload(env.SIGNING_SECRET, {
+      paid: true,
+      exp: Math.floor(Date.now() / 1000) - 1,
+    });
+    const r = await call("/project/mustang-ridge-solar", {
+      headers: { Cookie: `session_token=${expired}` },
+    });
+    // Treated as anonymous: first view succeeds and meter is set.
+    expect(r.status).toBe(200);
+    expect(r.headers.get("set-cookie")).toMatch(/ct_views=/);
+  });
+});
+
+describe("account page", () => {
+  it("GET /account without a session shows free tier", async () => {
+    const body = await (await call("/account")).text();
+    expect(body).toContain("No active membership");
+  });
+
+  it("GET /account with a valid member session shows membership active", async () => {
+    const token = await signPayload(env.SIGNING_SECRET, {
+      paid: true,
+      sub: "member@test.com",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const r = await call("/account", { headers: { Cookie: `session_token=${token}` } });
+    expect(r.status).toBe(200);
+    const body = await r.text();
+    expect(body).toContain("Membership active");
+    expect(body).toContain("member@test.com");
+  });
+
+  it("GET /account is private and not cached", async () => {
+    const cc = (await call("/account")).headers.get("cache-control");
+    expect(cc).toMatch(/no-store/);
+  });
+});
+
+describe("unknown developer", () => {
+  it("GET /developer/:unknown returns 404", async () => {
+    expect((await call("/developer/no-such-developer")).status).toBe(404);
+  });
+});
+
+describe("unlock flow edge cases", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("GET /unlock/cancel redirects to /", async () => {
+    const r = await call("/unlock/cancel", { redirect: "manual" });
+    expect(r.status).toBe(303);
+    expect(r.headers.get("location")).toBe("https://cleantech.test/");
+  });
+
+  it("GET /unlock redirects to Stripe when configured", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response(
+        JSON.stringify({ id: "cs_test", url: "https://checkout.stripe.test/pay/cs_test" }),
+        { headers: { "content-type": "application/json" } }
+      )
+    );
+    const r = await call("/unlock", { redirect: "manual" });
+    expect(r.status).toBe(303);
+    expect(r.headers.get("location")).toContain("checkout.stripe.test");
+  });
+
+  it("GET /unlock/success without session_id returns 400", async () => {
+    const r = await call("/unlock/success");
+    expect(r.status).toBe(400);
+  });
+
+  it("GET /unlock/success with an unpaid Stripe session returns 402", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response(
+        JSON.stringify({ id: "cs_unpaid", payment_status: "unpaid", customer_details: { email: null } }),
+        { headers: { "content-type": "application/json" } }
+      )
+    );
+    const r = await call("/unlock/success?session_id=cs_unpaid");
+    expect(r.status).toBe(402);
   });
 });
