@@ -1,0 +1,23 @@
+name = "cleantech-index"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+# D1 binding. Create the DB first, then paste the returned database_id here:
+#   npx wrangler d1 create cleantech_index
+[[d1_databases]]
+binding = "DB"
+database_name = "cleantech_index"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Non-secret, non-sensitive config can live here as plaintext vars.
+[vars]
+# PUBLIC_ORIGIN = "https://cleantech-index.example.com"  # optional canonical origin override
+# STRIPE_PRICE_ID = "price_xxx"                          # optional; else STRIPE_UNLOCK_AMOUNT_CENTS is used
+STRIPE_UNLOCK_AMOUNT_CENTS = "900"                       # $9.00 one-time unlock (used when no price id)
+MEMBER_TOKEN_TTL_DAYS = "365"
+
+# SECRETS — never commit these. Set with `wrangler secret put <NAME>`:
+#   wrangler secret put SIGNING_SECRET          (required)
+#   wrangler secret put STRIPE_SECRET_KEY       (enables /unlock)
+#   wrangler secret put STRIPE_WEBHOOK_SECRET   (enables /webhook/stripe)
+# For local dev, put the same names in .dev.vars (git-ignored). See .dev.vars.example.

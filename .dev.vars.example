@@ -1,0 +1,10 @@
+# Copy to .dev.vars (git-ignored) for `wrangler dev`. Generate a strong secret:
+#   openssl rand -hex 32
+SIGNING_SECRET="replace-with-64-hex-chars"
+
+# Stripe (optional locally). Use test-mode keys. For webhooks, run:
+#   stripe listen --forward-to localhost:8787/webhook/stripe
+# and paste the printed whsec_ secret below.
+STRIPE_SECRET_KEY="sk_test_xxx"
+STRIPE_WEBHOOK_SECRET="whsec_xxx"
+# STRIPE_PRICE_ID="price_xxx"
