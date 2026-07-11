@@ -10,11 +10,14 @@
     "test:watch": "vitest",
     "db:create": "wrangler d1 create cleantech_index",
     "migrate:local": "wrangler d1 migrations apply cleantech_index --local",
-    "migrate:remote": "wrangler d1 migrations apply cleantech_index --remote"
+    "migrate:remote": "wrangler d1 migrations apply cleantech_index --remote",
+    "import:eia860": "node scripts/eia860_import.js",
+    "import:ferc": "node scripts/ferc_queue_import.js"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.2",
     "vitest": "^4.1.0",
-    "wrangler": "^4.108.0"
+    "wrangler": "^4.108.0",
+    "xlsx": "^0.18.5"
   }
 }
