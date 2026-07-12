@@ -1,0 +1,96 @@
+name: Import EIA 860 + FERC Queue Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_eia860:
+        description: 'Run EIA 860 import'
+        type: boolean
+        default: true
+      run_ferc:
+        description: 'Run FERC queue import'
+        type: boolean
+        default: true
+  schedule:
+    # First Sunday of each month at 04:00 UTC
+    - cron: '0 4 1-7 * 0'
+
+jobs:
+  import:
+    name: Import data → D1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # ── EIA 860 ──────────────────────────────────────────────────────────────
+
+      - name: Run EIA 860 import
+        if: ${{ github.event_name == 'schedule' || inputs.run_eia860 }}
+        run: node scripts/eia860_import.js
+        # Script writes eia860_developers.sql + eia860_projects.sql in repo root
+
+      - name: Apply EIA 860 developers to D1
+        if: ${{ github.event_name == 'schedule' || inputs.run_eia860 }}
+        run: |
+          if [ ! -f eia860_developers.sql ]; then
+            echo "eia860_developers.sql not found — skipping"
+            exit 0
+          fi
+          node scripts/split-and-apply.js eia860_developers.sql cleantech_index
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Apply EIA 860 projects to D1
+        if: ${{ github.event_name == 'schedule' || inputs.run_eia860 }}
+        run: |
+          if [ ! -f eia860_projects.sql ]; then
+            echo "eia860_projects.sql not found — skipping"
+            exit 0
+          fi
+          node scripts/split-and-apply.js eia860_projects.sql cleantech_index
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ── FERC queues ───────────────────────────────────────────────────────────
+
+      - name: Run FERC queue import
+        if: ${{ github.event_name == 'schedule' || inputs.run_ferc }}
+        run: node scripts/ferc_queue_import.js
+        # Script writes ferc_queue.sql in repo root
+
+      - name: Apply FERC queue data to D1
+        if: ${{ github.event_name == 'schedule' || inputs.run_ferc }}
+        run: |
+          if [ ! -f ferc_queue.sql ]; then
+            echo "ferc_queue.sql not found — skipping"
+            exit 0
+          fi
+          node scripts/split-and-apply.js ferc_queue.sql cleantech_index
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # ── Verify ───────────────────────────────────────────────────────────────
+
+      - name: Verify row counts
+        run: |
+          npx wrangler d1 execute cleantech_index --remote \
+            --command="SELECT 'developers' as tbl, COUNT(*) as n FROM energy_developers
+                       UNION ALL
+                       SELECT 'projects', COUNT(*) FROM infrastructure_projects
+                       UNION ALL
+                       SELECT technology_type, COUNT(*) FROM infrastructure_projects GROUP BY 1"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
