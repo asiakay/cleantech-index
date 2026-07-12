@@ -163,17 +163,19 @@ async function main() {
   fs.mkdirSync(TMP_DIR, { recursive: true });
 
   // 1. Discover latest zip URL
+  const PAGE_URL = 'https://www.eia.gov/electricity/data/eia860/';
   console.log('Fetching EIA 860 data page...');
-  const html = (await httpsGet('https://www.eia.gov/electricity/data/eia860/')).toString('utf8');
-  const matches = [...html.matchAll(/href="([^"]*eia860\d{4}[^"]*\.zip)"/gi)];
+  const html = (await httpsGet(PAGE_URL)).toString('utf8');
+  // Match any zip href that contains "eia860" followed by a 4-digit year anywhere in the name
+  const matches = [...html.matchAll(/href="([^"]*eia860[^"]*\d{4}[^"]*\.zip)"/gi)];
   if (!matches.length) throw new Error('Could not find EIA 860 zip link on page');
 
-  // Pick the one with the highest year
-  const zipLinks = matches.map(m => m[1]).sort().reverse();
-  let zipUrl = zipLinks[0];
-  if (!zipUrl.startsWith('http')) {
-    zipUrl = 'https://www.eia.gov' + (zipUrl.startsWith('/') ? '' : '/') + zipUrl;
-  }
+  // Resolve all hrefs against the page URL, then pick the one with the highest year number
+  const zipLinks = matches
+    .map(m => new URL(m[1], PAGE_URL).href)
+    .sort()
+    .reverse();
+  const zipUrl = zipLinks[0];
   console.log(`Found zip: ${zipUrl}`);
 
   // 2. Download zip
