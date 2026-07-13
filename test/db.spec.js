@@ -55,6 +55,14 @@ describe("sitemap + featured helpers", () => {
     expect(page).toBe(1);
     expect(totalPages).toBeGreaterThanOrEqual(2);
   });
+  it("getFeaturedProjects filters by status", async () => {
+    const { projects, totalPages } = await getFeaturedProjects(env, 1, 20, "capacity", "desc", "Planned");
+    expect(projects.length).toBeGreaterThanOrEqual(1);
+    expect(projects.every((p) => p.status === "Planned")).toBe(true);
+    // Unrecognised status value is ignored (returns all)
+    const { projects: all } = await getFeaturedProjects(env, 1, 20, "capacity", "desc", "invalid");
+    expect(all.length).toBeGreaterThanOrEqual(4);
+  });
   it("getFeaturedProjects respects sort and dir", async () => {
     const { projects: byName } = await getFeaturedProjects(env, 1, 10, "name", "asc");
     const names = byName.map((p) => p.project_name);

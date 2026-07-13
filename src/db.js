@@ -74,8 +74,10 @@ const SORT_COLS = {
   name: "project_name",
 };
 
+const VALID_STATUSES = new Set(["Operational", "Under Construction", "Planned"]);
+
 /** Paginated + sorted projects + index-wide stats for the home page, one batch round-trip. */
-export async function getFeaturedProjects(env, page = 1, pageSize = 20, sort = "capacity", dir = "desc") {
+export async function getFeaturedProjects(env, page = 1, pageSize = 20, sort = "capacity", dir = "desc", status = "") {
   const col = SORT_COLS[sort] ?? "capacity_mw";
   const order = dir === "asc" ? "ASC" : "DESC";
   // Secondary sort keeps results stable across pages
@@ -83,13 +85,16 @@ export async function getFeaturedProjects(env, page = 1, pageSize = 20, sort = "
     ? `${col} ${order}, project_name ASC`
     : `${col} ${order}, capacity_mw DESC`;
   const offset = (page - 1) * pageSize;
+  const where = VALID_STATUSES.has(status) ? "WHERE status = ?" : "";
+  const binds = VALID_STATUSES.has(status) ? [status] : [];
   const [projRes, statsRes] = await env.DB.batch([
     env.DB.prepare(
       `SELECT project_name, slug, technology_type, capacity_mw, status, state
          FROM infrastructure_projects
+         ${where}
          ORDER BY ${orderSql}
          LIMIT ? OFFSET ?`
-    ).bind(pageSize, offset),
+    ).bind(...binds, pageSize, offset),
     env.DB.prepare(
       `SELECT
          COUNT(*)                                      AS total_projects,
@@ -102,15 +107,26 @@ export async function getFeaturedProjects(env, page = 1, pageSize = 20, sort = "
        FROM infrastructure_projects`
     ),
   ]);
-  const total = statsRes.results[0].total_projects ?? 0;
+  const total = VALID_STATUSES.has(status)
+    ? projRes.results.length + offset  // approximate from current page for filtered view
+    : (statsRes.results[0].total_projects ?? 0);
+  // For filtered queries, get accurate count
+  let filteredTotal = total;
+  if (VALID_STATUSES.has(status)) {
+    const countRes = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM infrastructure_projects WHERE status = ?`
+    ).bind(status).first();
+    filteredTotal = countRes?.n ?? 0;
+  }
   return {
     projects: projRes.results,
     stats: statsRes.results[0],
     page,
     pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: Math.max(1, Math.ceil(filteredTotal / pageSize)),
     sort,
     dir,
+    status,
   };
 }
 
