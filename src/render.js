@@ -224,7 +224,7 @@ const TECH_ICONS = {
 };
 
 /** Home page with stats bar, sort controls, tech-grouped list, client-side filter, and pagination. */
-export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc" }) {
+export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc", status = "" }) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
@@ -243,6 +243,8 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
   </div>`;
 
   // Sort controls — clicking the active col toggles direction; others default to their natural dir
+  const statusQs = status ? `&status=${encodeURIComponent(status)}` : "";
+
   const SORT_OPTS = [
     { key: "capacity",   label: "Capacity",   defaultDir: "desc" },
     { key: "name",       label: "Name",        defaultDir: "asc"  },
@@ -256,7 +258,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
       const isActive = key === sort;
       const nextDir = isActive ? (dir === "asc" ? "desc" : "asc") : defaultDir;
       const arrow = isActive ? (dir === "asc" ? " ↑" : " ↓") : "";
-      return `<a href="/?sort=${key}&dir=${nextDir}&page=1" class="sort-btn${isActive ? " sort-active" : ""}">${esc(label)}${arrow}</a>`;
+      return `<a href="/?sort=${key}&dir=${nextDir}&page=1${statusQs}" class="sort-btn${isActive ? " sort-active" : ""}">${esc(label)}${arrow}</a>`;
     }).join("")}
   </div>`;
 
@@ -291,8 +293,8 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
     </div>`;
   }
 
-  // Pagination links preserve current sort+dir
-  const pageLink = (p) => `/?page=${p}&sort=${sort}&dir=${dir}`;
+  // Pagination links preserve current sort+dir+status
+  const pageLink = (p) => `/?page=${p}&sort=${sort}&dir=${dir}${statusQs}`;
   const pager = totalPages > 1
     ? `<nav class="pager" aria-label="Pagination">
          ${page > 1 ? `<a href="${pageLink(page - 1)}">← Previous</a>` : `<span></span>`}
@@ -304,19 +306,15 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
   const filterScript = `<script>
 (function(){
   var inp=document.getElementById('fi');
-  var sel=document.getElementById('fs');
   function applyFilter(){
     var q=(inp.value||'').toLowerCase();
-    var st=sel.value;
     var groups=document.querySelectorAll('.tech-group');
     groups.forEach(function(g){
       var items=g.querySelectorAll('li');
       var vis=0;
       items.forEach(function(li){
-        var matchQ=!q||li.querySelector('a').textContent.toLowerCase().includes(q)||
+        var show=!q||li.querySelector('a').textContent.toLowerCase().includes(q)||
           (li.dataset.state||'').toLowerCase().includes(q);
-        var matchS=!st||li.dataset.status===st;
-        var show=matchQ&&matchS;
         li.style.display=show?'':'none';
         if(show)vis++;
       });
@@ -327,7 +325,6 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
     if(nr)nr.style.display=any?'none':'';
   }
   inp.addEventListener('input',applyFilter);
-  sel.addEventListener('change',applyFilter);
 })();
 </script>`;
 
@@ -340,11 +337,11 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
        ${statsBar}
        <div class="filter-bar">
          <input id="fi" type="search" placeholder="Filter by name or state…" aria-label="Filter projects">
-         <select id="fs" aria-label="Filter by status">
-           <option value="">All statuses</option>
-           <option value="Operational">Operational</option>
-           <option value="Under Construction">Under Construction</option>
-           <option value="Planned">Planned</option>
+         <select id="fs" aria-label="Filter by status" onchange="var v=this.value;window.location.href='/?sort=${esc(sort)}&dir=${esc(dir)}&page=1'+(v?'&status='+encodeURIComponent(v):'')">
+           <option value=""${!status ? " selected" : ""}>All statuses</option>
+           <option value="Operational"${status === "Operational" ? " selected" : ""}>Operational</option>
+           <option value="Under Construction"${status === "Under Construction" ? " selected" : ""}>Under Construction</option>
+           <option value="Planned"${status === "Planned" ? " selected" : ""}>Planned</option>
          </select>
        </div>
        ${sortBar}

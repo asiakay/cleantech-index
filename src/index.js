@@ -99,11 +99,14 @@ export default {
 const VALID_SORTS = new Set(["capacity", "status", "technology", "state", "name"]);
 const VALID_DIRS  = new Set(["asc", "desc"]);
 
+const VALID_STATUSES = new Set(["Operational", "Under Construction", "Planned"]);
+
 async function handleHome(env, url) {
-  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-  const sort = VALID_SORTS.has(url.searchParams.get("sort")) ? url.searchParams.get("sort") : "capacity";
-  const dir  = VALID_DIRS.has(url.searchParams.get("dir"))   ? url.searchParams.get("dir")  : "desc";
-  const data = await getFeaturedProjects(env, page, 20, sort, dir);
+  const page   = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+  const sort   = VALID_SORTS.has(url.searchParams.get("sort")) ? url.searchParams.get("sort") : "capacity";
+  const dir    = VALID_DIRS.has(url.searchParams.get("dir"))   ? url.searchParams.get("dir")  : "desc";
+  const status = VALID_STATUSES.has(url.searchParams.get("status")) ? url.searchParams.get("status") : "";
+  const data   = await getFeaturedProjects(env, page, 20, sort, dir, status);
   return html(renderHome(data).chunks, {
     headers: { "cache-control": "public, max-age=300" },
   });
