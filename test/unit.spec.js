@@ -226,26 +226,26 @@ describe("renderDeveloperPage", () => {
 });
 
 describe("renderHome", () => {
+  const stats = { total_projects: 2, total_gw: 0.7, total_states: 2, count_operational: 1, count_under_construction: 0, count_planned: 1 };
   const projects = [
-    { project_name: "Mustang Ridge Solar", slug: "mustang-ridge-solar", technology_type: "Solar PV", capacity_mw: 250, state: "TX" },
-    { project_name: "North Prairie Wind", slug: "north-prairie-wind", technology_type: "Onshore Wind", capacity_mw: 400, state: "IA" },
+    { project_name: "Mustang Ridge Solar", slug: "mustang-ridge-solar", technology_type: "Solar PV", capacity_mw: 250, status: "Operational", state: "TX" },
+    { project_name: "North Prairie Wind", slug: "north-prairie-wind", technology_type: "Onshore Wind", capacity_mw: 400, status: "Planned", state: "IA" },
   ];
 
   it("lists every project with a link and capacity", () => {
-    const body = renderHome(projects).chunks.join("");
+    const body = renderHome({ projects, stats }).chunks.join("");
     expect(body).toContain("/project/mustang-ridge-solar");
     expect(body).toContain("Mustang Ridge Solar");
     expect(body).toContain("/project/north-prairie-wind");
     expect(body).toContain("400");
   });
   it("does not include a canonical link (home page uses origin)", () => {
-    // Home page has no canonical param passed to head().
-    const body = renderHome(projects).chunks.join("");
+    const body = renderHome({ projects, stats }).chunks.join("");
     expect(body).not.toContain('rel="canonical"');
   });
   it("handles an empty project list gracefully", () => {
-    const body = renderHome([]).chunks.join("");
-    expect(body).toContain("Featured projects");
+    const body = renderHome({ projects: [], stats }).chunks.join("");
+    expect(body).toContain("CleanTech Index");
   });
 });
 
