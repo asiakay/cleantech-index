@@ -96,9 +96,14 @@ export default {
   },
 };
 
+const VALID_SORTS = new Set(["capacity", "status", "technology", "state", "name"]);
+const VALID_DIRS  = new Set(["asc", "desc"]);
+
 async function handleHome(env, url) {
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-  const data = await getFeaturedProjects(env, page);
+  const sort = VALID_SORTS.has(url.searchParams.get("sort")) ? url.searchParams.get("sort") : "capacity";
+  const dir  = VALID_DIRS.has(url.searchParams.get("dir"))   ? url.searchParams.get("dir")  : "desc";
+  const data = await getFeaturedProjects(env, page, 20, sort, dir);
   return html(renderHome(data).chunks, {
     headers: { "cache-control": "public, max-age=300" },
   });

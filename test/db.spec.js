@@ -55,6 +55,14 @@ describe("sitemap + featured helpers", () => {
     expect(page).toBe(1);
     expect(totalPages).toBeGreaterThanOrEqual(2);
   });
+  it("getFeaturedProjects respects sort and dir", async () => {
+    const { projects: byName } = await getFeaturedProjects(env, 1, 10, "name", "asc");
+    const names = byName.map((p) => p.project_name);
+    expect(names).toEqual([...names].sort());
+    const { projects: byNameDesc } = await getFeaturedProjects(env, 1, 10, "name", "desc");
+    const namesDesc = byNameDesc.map((p) => p.project_name);
+    expect(namesDesc).toEqual([...namesDesc].sort().reverse());
+  });
 });
 
 describe("recordMember (idempotent)", () => {

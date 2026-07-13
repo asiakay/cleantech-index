@@ -66,14 +66,28 @@ export async function getDeveloperBySlug(env, slug) {
   return { dev, projects: projRes.results };
 }
 
-/** Paginated projects + index-wide stats for the home page, one batch round-trip. */
-export async function getFeaturedProjects(env, page = 1, pageSize = 20) {
+const SORT_COLS = {
+  capacity: "capacity_mw",
+  status: "status",
+  technology: "technology_type",
+  state: "state",
+  name: "project_name",
+};
+
+/** Paginated + sorted projects + index-wide stats for the home page, one batch round-trip. */
+export async function getFeaturedProjects(env, page = 1, pageSize = 20, sort = "capacity", dir = "desc") {
+  const col = SORT_COLS[sort] ?? "capacity_mw";
+  const order = dir === "asc" ? "ASC" : "DESC";
+  // Secondary sort keeps results stable across pages
+  const orderSql = col === "capacity_mw"
+    ? `${col} ${order}, project_name ASC`
+    : `${col} ${order}, capacity_mw DESC`;
   const offset = (page - 1) * pageSize;
   const [projRes, statsRes] = await env.DB.batch([
     env.DB.prepare(
       `SELECT project_name, slug, technology_type, capacity_mw, status, state
          FROM infrastructure_projects
-         ORDER BY capacity_mw DESC
+         ORDER BY ${orderSql}
          LIMIT ? OFFSET ?`
     ).bind(pageSize, offset),
     env.DB.prepare(
@@ -95,6 +109,8 @@ export async function getFeaturedProjects(env, page = 1, pageSize = 20) {
     page,
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    sort,
+    dir,
   };
 }
 
