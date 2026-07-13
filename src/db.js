@@ -66,14 +66,14 @@ export async function getDeveloperBySlug(env, slug) {
   return { dev, projects: projRes.results };
 }
 
-/** Featured projects + index-wide stats for the home page, one batch round-trip. */
-export async function getFeaturedProjects(env, limit = 25) {
+/** All projects + index-wide stats for the home page, one batch round-trip. */
+export async function getFeaturedProjects(env) {
   const [projRes, statsRes] = await env.DB.batch([
     env.DB.prepare(
       `SELECT project_name, slug, technology_type, capacity_mw, status, state
          FROM infrastructure_projects
-         ORDER BY capacity_mw DESC LIMIT ?`
-    ).bind(limit),
+         ORDER BY capacity_mw DESC`
+    ),
     env.DB.prepare(
       `SELECT
          COUNT(*)                                      AS total_projects,
