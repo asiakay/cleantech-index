@@ -186,57 +186,117 @@ async function main() {
 
   // 3. Extract generator schedule file
   console.log('Extracting generator schedule file...');
+
+  // List zip contents first so we know what to look for
+  let zipContents = '';
   try {
-    execSync(`unzip -o "${zipPath}" "*3_1_Generator*" -d "${TMP_DIR}"`, { stdio: 'pipe' });
-  } catch {
-    // Some versions use 3_1_Wind or 3_Generator — try broader pattern
-    execSync(`unzip -o "${zipPath}" -d "${TMP_DIR}"`, { stdio: 'pipe' });
+    zipContents = execSync(`unzip -l "${zipPath}"`, { stdio: 'pipe' }).toString();
+  } catch (e) {
+    zipContents = e.stdout?.toString() || '';
+  }
+  // Find generator schedule entries
+  const generatorEntries = zipContents.split('\n')
+    .map(l => l.trim().split(/\s+/).pop())
+    .filter(f => f && /3_1_generator/i.test(f) && /\.(xlsx|xls)$/i.test(f));
+  console.log(`Zip generator entries: ${generatorEntries.length ? generatorEntries.join(', ') : '(none found — will extract all)'}`);
+
+  if (generatorEntries.length) {
+    // Extract only the generator file(s)
+    for (const entry of generatorEntries) {
+      try {
+        execSync(`unzip -o "${zipPath}" "${entry}" -d "${TMP_DIR}"`, { stdio: 'inherit' });
+      } catch { /* ignore */ }
+    }
+  } else {
+    // No generator file found by name — extract everything and we'll search
+    console.log('Extracting all xlsx files from zip...');
+    execSync(`unzip -o "${zipPath}" "*.xlsx" "*.xls" -d "${TMP_DIR}"`, { stdio: 'inherit' });
   }
 
-  const extracted = fs.readdirSync(TMP_DIR)
-    .filter(f => /3_1_generator/i.test(f) && /\.(xlsx|xls)$/i.test(f))
-    .map(f => path.join(TMP_DIR, f));
-
-  if (!extracted.length) {
-    // Fall back: any xlsx that looks generator-ish
-    const all = fs.readdirSync(TMP_DIR).filter(f => /\.(xlsx|xls)$/i.test(f));
-    console.warn(`WARN could not find 3_1_Generator file. Available xlsx: ${all.join(', ')}`);
-    throw new Error('Generator schedule file not found after extraction');
+  // Walk TMP_DIR recursively to find generator xlsx
+  function findXlsx(dir) {
+    const results = [];
+    for (const f of fs.readdirSync(dir)) {
+      const full = path.join(dir, f);
+      if (fs.statSync(full).isDirectory()) results.push(...findXlsx(full));
+      else if (/\.(xlsx|xls)$/i.test(f)) results.push(full);
+    }
+    return results;
   }
+  const allXlsx = findXlsx(TMP_DIR);
+  console.log(`All xlsx files found: ${allXlsx.map(f => path.relative(TMP_DIR, f)).join(', ') || '(none)'}`);
 
-  const xlsxPath = extracted[0];
-  console.log(`Parsing: ${path.basename(xlsxPath)}`);
+  let xlsxPath = allXlsx.find(f => /3_1_generator/i.test(path.basename(f)));
+  if (!xlsxPath) {
+    // Fall back to any xlsx that looks like a generator schedule
+    xlsxPath = allXlsx.find(f => /generator/i.test(path.basename(f)));
+  }
+  if (!xlsxPath && allXlsx.length) {
+    console.warn(`WARN no generator-named file found; trying first xlsx: ${allXlsx[0]}`);
+    xlsxPath = allXlsx[0];
+  }
+  if (!xlsxPath) throw new Error('No xlsx files found after extraction');
+
+  console.log(`Parsing: ${path.relative(TMP_DIR, xlsxPath)}`);
 
   // 4. Parse Excel
   const wb = XLSX.readFile(xlsxPath, { cellDates: true });
+  console.log(`Sheet names: ${wb.SheetNames.join(', ')}`);
 
   // Look for the "Operable" sheet (Schedule 3 generators)
   const sheetName = wb.SheetNames.find(n => /operable/i.test(n)) ?? wb.SheetNames[0];
   console.log(`Using sheet: "${sheetName}"`);
   const ws = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
 
-  if (!rows.length) throw new Error('Sheet is empty');
+  // EIA 860 often has 1-2 header rows before the actual column headers; detect by
+  // finding the first row that contains "Plant Name" or "Generator ID" etc.
+  const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false, header: 1 });
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(10, rawRows.length); i++) {
+    const r = rawRows[i].map(c => String(c ?? '').toLowerCase());
+    if (r.some(c => c.includes('plant name') || c.includes('generator id') || c.includes('nameplate') || c.includes('technology'))) {
+      headerRowIdx = i;
+      break;
+    }
+  }
+  console.log(`Header row detected at index ${headerRowIdx}`);
+
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false, range: headerRowIdx });
+  if (!rows.length) throw new Error('Sheet is empty after header detection');
   const header = Object.keys(rows[0]);
   console.log(`Rows: ${rows.length}, Columns: ${header.length}`);
+  console.log(`First 40 column names: ${header.slice(0, 40).join(' | ')}`);
 
-  // Map column names (fuzzy)
+  // Map column names (fuzzy) — candidates ordered most-likely first
   const COL = {
-    plantName:    findCol(header, ['Plant Name', 'Facility Name', 'Plant']),
-    generatorId:  findCol(header, ['Generator ID', 'Gen ID', 'Generator Id']),
-    utilityName:  findCol(header, ['Utility Name', 'Entity Name', 'Company', 'Owner']),
-    technology:   findCol(header, ['Technology', 'Prime Mover', 'Technology Description']),
-    capacity:     findCol(header, ['Nameplate Capacity (MW)', 'Nameplate Capacity', 'MW Nameplate', 'Capacity (MW)', 'Summer Capacity (MW)']),
-    status:       findCol(header, ['Status', 'Operating Status', 'Generator Status']),
+    plantName:    findCol(header, ['Plant Name', 'Facility Name', 'Plant', 'Plant Id']),
+    generatorId:  findCol(header, ['Generator ID', 'Gen ID', 'Generator Id', 'Generator']),
+    utilityName:  findCol(header, ['Utility Name', 'Entity Name', 'Respondent Name', 'Company', 'Owner', 'Operator Name']),
+    technology:   findCol(header, ['Technology', 'Technology Description', 'Prime Mover', 'Energy Source 1']),
+    capacity:     findCol(header, ['Nameplate Capacity (MW)', 'Nameplate Capacity', 'Summer Capacity (MW)', 'MW Nameplate', 'Capacity (MW)', 'Net Summer Capacity (MW)']),
+    status:       findCol(header, ['Status', 'Generator Status', 'Operating Status', 'Unit Status']),
     county:       findCol(header, ['County', 'County Name']),
-    state:        findCol(header, ['State', 'Plant State']),
-    utility:      findCol(header, ['Balancing Authority Code', 'Balancing Authority', 'Utility Name', 'Transmission Owner']),
-    opYear:       findCol(header, ['Operating Year', 'Commercial Operation Year', 'Nameplate Energy Capacity (MWh)']),
+    state:        findCol(header, ['State', 'Plant State', 'State of Plant']),
+    utility:      findCol(header, ['Balancing Authority Code', 'Balancing Authority', 'BA Code', 'Transmission Owner', 'Utility Name']),
+    opYear:       findCol(header, ['Operating Year', 'Commercial Operation Year', 'Operating Year (planned)', 'Year']),
   };
+
+  // Always log resolved column mapping
+  console.log('\nColumn mapping:');
+  for (const [k, v] of Object.entries(COL)) {
+    console.log(`  ${k.padEnd(14)} ← ${v ? `"${v}"` : '!! NOT FOUND'}`);
+  }
 
   // Warn about missing critical columns
   for (const [k, v] of Object.entries(COL)) {
     if (!v) console.warn(`WARN column not found for field "${k}"`);
+  }
+
+  // Log a sample row so column mismatches are immediately visible
+  if (rows.length > 0) {
+    const sample = rows[0];
+    console.log('\nFirst data row sample (first 15 fields):');
+    Object.entries(sample).slice(0, 15).forEach(([k, v]) => console.log(`  "${k}": ${JSON.stringify(v)}`));
   }
 
   // 5. Filter and collect
