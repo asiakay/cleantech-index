@@ -66,16 +66,27 @@ export async function getDeveloperBySlug(env, slug) {
   return { dev, projects: projRes.results };
 }
 
-/** Featured projects for the home page. */
+/** Featured projects + index-wide stats for the home page, one batch round-trip. */
 export async function getFeaturedProjects(env, limit = 25) {
-  const { results } = await env.DB.prepare(
-    `SELECT project_name, slug, technology_type, capacity_mw, state
-       FROM infrastructure_projects
-       ORDER BY capacity_mw DESC LIMIT ?`
-  )
-    .bind(limit)
-    .all();
-  return results;
+  const [projRes, statsRes] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT project_name, slug, technology_type, capacity_mw, status, state
+         FROM infrastructure_projects
+         ORDER BY capacity_mw DESC LIMIT ?`
+    ).bind(limit),
+    env.DB.prepare(
+      `SELECT
+         COUNT(*)                                      AS total_projects,
+         ROUND(SUM(capacity_mw) / 1000.0, 1)          AS total_gw,
+         COUNT(DISTINCT state)                         AS total_states,
+         COUNT(DISTINCT technology_type)               AS total_tech_types,
+         SUM(CASE WHEN status = 'Operational'        THEN 1 ELSE 0 END) AS count_operational,
+         SUM(CASE WHEN status = 'Under Construction' THEN 1 ELSE 0 END) AS count_under_construction,
+         SUM(CASE WHEN status = 'Planned'            THEN 1 ELSE 0 END) AS count_planned
+       FROM infrastructure_projects`
+    ),
+  ]);
+  return { projects: projRes.results, stats: statsRes.results[0] };
 }
 
 /** All slugs for the sitemap. */

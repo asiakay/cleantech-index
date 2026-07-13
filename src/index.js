@@ -97,8 +97,8 @@ export default {
 };
 
 async function handleHome(env) {
-  const projects = await getFeaturedProjects(env, 25);
-  return html(renderHome(projects).chunks, {
+  const data = await getFeaturedProjects(env, 25);
+  return html(renderHome(data).chunks, {
     headers: { "cache-control": "public, max-age=300" },
   });
 }

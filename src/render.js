@@ -33,13 +33,28 @@ table.spec{width:100%;border-collapse:collapse;margin:8px 0 26px}
 .s-op{background:#e7f6ec;color:#0f6a3d}.s-uc{background:#fff2df;color:#8a4b00}.s-pl{background:#eef1ff;color:#334a9e}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:26px 0 10px}
 ul.v{list-style:none;padding:0;margin:0}
-ul.v li{padding:9px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px}
+ul.v li{padding:9px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}
 ul.v li span{color:var(--mut);font-size:14px}
 .foot{margin-top:34px;font-size:12px;color:var(--mut)}
 .gate{max-width:520px;margin:9vh auto;text-align:center;padding:0 20px}
 .gate h1{font-size:25px}.gate p{color:var(--mut)}
 .cta{display:inline-block;margin-top:18px;padding:12px 22px;border-radius:10px;
 background:var(--accent);color:#fff;font-weight:700}
+.stats-bar{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 28px}
+.stat{flex:1 1 120px;background:#fff;border:1px solid var(--line);border-radius:10px;
+padding:14px 16px;min-width:100px}
+.stat-n{font-size:22px;font-weight:700;color:var(--ink);line-height:1}
+.stat-l{font-size:12px;color:var(--mut);margin-top:3px}
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.filter-bar input{flex:1 1 200px;padding:8px 12px;border:1px solid var(--line);
+border-radius:8px;font-size:14px;background:#fff;color:var(--ink);outline:none}
+.filter-bar input:focus{border-color:var(--accent)}
+.filter-bar select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+font-size:14px;background:#fff;color:var(--ink);outline:none;cursor:pointer}
+.filter-bar select:focus{border-color:var(--accent)}
+.tech-group{margin-bottom:8px}
+.tech-group h2{cursor:pointer;user-select:none}
+.no-results{padding:18px 0;color:var(--mut);font-size:14px}
 `;
 
 const statusClass = (s) =>
@@ -190,24 +205,122 @@ export function renderPaywall(origin) {
   };
 }
 
-/** Minimal home page (does not consume free views). */
-export function renderHome(projects) {
+/** Home page with stats bar, tech-grouped list, and client-side filter. */
+export function renderHome({ projects, stats }) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
-  const items = projects
-    .map(
-      (p) =>
-        `<li><a href="/project/${esc(p.slug)}">${esc(p.project_name)}</a>
-         <span>${esc(num(p.capacity_mw))} MW · ${esc(p.technology_type)} · ${esc(p.state || "")}</span></li>`
-    )
+
+  const statTile = (n, label) =>
+    `<div class="stat"><div class="stat-n">${esc(n)}</div><div class="stat-l">${label}</div></div>`;
+
+  const gwStr = stats.total_gw != null ? `${num(stats.total_gw)} GW` : "—";
+  const statsBar = `<div class="stats-bar">
+    ${statTile(stats.total_projects ?? "—", "projects tracked")}
+    ${statTile(gwStr, "total capacity")}
+    ${statTile(stats.total_states ?? "—", "states covered")}
+    ${statTile(stats.count_operational ?? 0, "operational")}
+    ${statTile(stats.count_under_construction ?? 0, "under construction")}
+    ${statTile(stats.count_planned ?? 0, "planned")}
+  </div>`;
+
+  // Group by technology type, preserving capacity-desc order within each group
+  const groups = {};
+  for (const p of projects) {
+    const key = p.technology_type || "Other";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(p);
+  }
+
+  const techIcons = {
+    "Solar PV": "☀️",
+    "Battery Storage": "🔋",
+    "Onshore Wind": "🌬️",
+    "Offshore Wind": "🌊",
+  };
+
+  const projectsJson = safeJson(
+    projects.map((p) => ({
+      slug: p.slug,
+      name: p.project_name,
+      tech: p.technology_type || "",
+      mw: p.capacity_mw,
+      state: p.state || "",
+      status: p.status || "",
+    }))
+  );
+
+  const groupsHtml = Object.entries(groups)
+    .map(([tech, items]) => {
+      const icon = techIcons[tech] || "⚡";
+      const rows = items
+        .map(
+          (p) =>
+            `<li data-slug="${esc(p.slug)}" data-tech="${esc(p.technology_type)}" data-state="${esc(p.state || "")}" data-status="${esc(p.status || "")}">
+               <a href="/project/${esc(p.slug)}">${esc(p.project_name)}</a>
+               <span><span class="status ${statusClass(p.status)}">${esc(p.status)}</span>&nbsp; ${esc(num(p.capacity_mw))} MW · ${esc(p.state || "")}</span>
+             </li>`
+        )
+        .join("");
+      return `<div class="tech-group" data-tech="${esc(tech)}">
+        <h2>${icon} ${esc(tech)} <span style="font-weight:400;text-transform:none;font-size:13px">(${items.length})</span></h2>
+        <ul class="v">${rows}</ul>
+      </div>`;
+    })
     .join("");
+
+  const filterScript = `<script>
+(function(){
+  var data=${projectsJson};
+  var inp=document.getElementById('fi');
+  var sel=document.getElementById('fs');
+  function applyFilter(){
+    var q=(inp.value||'').toLowerCase();
+    var st=sel.value;
+    var techGroups=document.querySelectorAll('.tech-group');
+    techGroups.forEach(function(g){
+      var tech=g.dataset.tech;
+      var items=g.querySelectorAll('li');
+      var visibleInGroup=0;
+      items.forEach(function(li){
+        var matchQ=!q||li.querySelector('a').textContent.toLowerCase().includes(q)||
+          (li.dataset.state||'').toLowerCase().includes(q);
+        var matchS=!st||li.dataset.status===st;
+        var matchT=!tech||true;
+        var show=matchQ&&matchS;
+        li.style.display=show?'':'none';
+        if(show)visibleInGroup++;
+      });
+      g.style.display=visibleInGroup===0?'none':'';
+    });
+    var anyVisible=document.querySelectorAll('.tech-group:not([style*="display: none"])').length>0;
+    var nr=document.getElementById('no-results');
+    if(nr)nr.style.display=anyVisible?'none':'';
+  }
+  inp.addEventListener('input',applyFilter);
+  sel.addEventListener('change',applyFilter);
+})();
+</script>`;
+
   return {
     title,
     chunks: [
       head(title, description, null, null),
-      `<h1>CleanTech Index</h1><p class="sub">Clean energy infrastructure, one project at a time.</p>
-       <h2>Featured projects</h2><ul class="v">${items}</ul>`,
+      `<h1>CleanTech Index</h1>
+       <p class="sub">U.S. clean energy infrastructure — solar, wind, and battery storage projects with capacity, status, and hardware suppliers.</p>
+       ${statsBar}
+       <div class="filter-bar">
+         <input id="fi" type="search" placeholder="Filter by name or state…" aria-label="Filter projects">
+         <select id="fs" aria-label="Filter by status">
+           <option value="">All statuses</option>
+           <option value="Operational">Operational</option>
+           <option value="Under Construction">Under Construction</option>
+           <option value="Planned">Planned</option>
+         </select>
+       </div>
+       <p id="no-results" class="no-results" style="display:none">No projects match your filter.</p>
+       ${groupsHtml}`,
+      filterScript,
       tail,
     ],
   };
