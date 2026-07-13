@@ -69,7 +69,7 @@ export default {
 
     try {
       if (path === "/health") return text("ok");
-      if (path === "/" && method === "GET") return handleHome(env);
+      if (path === "/" && method === "GET") return handleHome(env, url);
       if (path === "/robots.txt" && method === "GET")
         return text(renderRobots(origin), 200, { "cache-control": "public, max-age=86400" });
       if (path === "/sitemap.xml" && method === "GET") return handleSitemap(env, origin);
@@ -96,8 +96,9 @@ export default {
   },
 };
 
-async function handleHome(env) {
-  const data = await getFeaturedProjects(env);
+async function handleHome(env, url) {
+  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+  const data = await getFeaturedProjects(env, page);
   return html(renderHome(data).chunks, {
     headers: { "cache-control": "public, max-age=300" },
   });

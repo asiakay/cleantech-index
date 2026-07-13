@@ -55,6 +55,10 @@ font-size:14px;background:#fff;color:var(--ink);outline:none;cursor:pointer}
 .tech-group{margin-bottom:8px}
 .tech-group h2{cursor:pointer;user-select:none}
 .no-results{padding:18px 0;color:var(--mut);font-size:14px}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:28px;font-size:14px}
+.pager a{display:inline-block;padding:8px 16px;border:1px solid var(--line);border-radius:8px;color:var(--accent)}
+.pager a:hover{background:var(--line);text-decoration:none}
+.pager .pager-info{color:var(--mut)}
 `;
 
 const statusClass = (s) =>
@@ -205,8 +209,8 @@ export function renderPaywall(origin) {
   };
 }
 
-/** Home page with stats bar, tech-grouped list, and client-side filter. */
-export function renderHome({ projects, stats }) {
+/** Home page with stats bar, tech-grouped list, client-side filter, and pagination. */
+export function renderHome({ projects, stats, page = 1, totalPages = 1 }) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
@@ -319,7 +323,12 @@ export function renderHome({ projects, stats }) {
          </select>
        </div>
        <p id="no-results" class="no-results" style="display:none">No projects match your filter.</p>
-       ${groupsHtml}`,
+       ${groupsHtml}
+       ${totalPages > 1 ? `<nav class="pager" aria-label="Pagination">
+         ${page > 1 ? `<a href="/?page=${page - 1}">← Previous</a>` : `<span></span>`}
+         <span class="pager-info">Page ${page} of ${totalPages}</span>
+         ${page < totalPages ? `<a href="/?page=${page + 1}">Next →</a>` : `<span></span>`}
+       </nav>` : ""}`,
       filterScript,
       tail,
     ],
