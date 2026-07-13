@@ -59,6 +59,13 @@ font-size:14px;background:#fff;color:var(--ink);outline:none;cursor:pointer}
 .pager a{display:inline-block;padding:8px 16px;border:1px solid var(--line);border-radius:8px;color:var(--accent)}
 .pager a:hover{background:var(--line);text-decoration:none}
 .pager .pager-info{color:var(--mut)}
+.sort-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:16px}
+.sort-label{font-size:13px;color:var(--mut);margin-right:2px}
+.sort-btn{font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;
+color:var(--ink);background:#fff;text-decoration:none;white-space:nowrap}
+.sort-btn:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.sort-active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+.sort-active:hover{color:#fff}
 `;
 
 const statusClass = (s) =>
@@ -209,8 +216,15 @@ export function renderPaywall(origin) {
   };
 }
 
-/** Home page with stats bar, tech-grouped list, client-side filter, and pagination. */
-export function renderHome({ projects, stats, page = 1, totalPages = 1 }) {
+const TECH_ICONS = {
+  "Solar PV": "☀️",
+  "Battery Storage": "🔋",
+  "Onshore Wind": "🌬️",
+  "Offshore Wind": "🌊",
+};
+
+/** Home page with stats bar, sort controls, tech-grouped list, client-side filter, and pagination. */
+export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc" }) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
@@ -228,78 +242,89 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1 }) {
     ${statTile(stats.count_planned ?? 0, "planned")}
   </div>`;
 
-  // Group by technology type, preserving capacity-desc order within each group
-  const groups = {};
-  for (const p of projects) {
-    const key = p.technology_type || "Other";
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(p);
+  // Sort controls — clicking the active col toggles direction; others default to their natural dir
+  const SORT_OPTS = [
+    { key: "capacity",   label: "Capacity",   defaultDir: "desc" },
+    { key: "name",       label: "Name",        defaultDir: "asc"  },
+    { key: "status",     label: "Status",      defaultDir: "asc"  },
+    { key: "technology", label: "Technology",  defaultDir: "asc"  },
+    { key: "state",      label: "State",       defaultDir: "asc"  },
+  ];
+  const sortBar = `<div class="sort-bar">
+    <span class="sort-label">Sort:</span>
+    ${SORT_OPTS.map(({ key, label, defaultDir }) => {
+      const isActive = key === sort;
+      const nextDir = isActive ? (dir === "asc" ? "desc" : "asc") : defaultDir;
+      const arrow = isActive ? (dir === "asc" ? " ↑" : " ↓") : "";
+      return `<a href="/?sort=${key}&dir=${nextDir}&page=1" class="sort-btn${isActive ? " sort-active" : ""}">${esc(label)}${arrow}</a>`;
+    }).join("")}
+  </div>`;
+
+  const projectRow = (p) =>
+    `<li data-slug="${esc(p.slug)}" data-tech="${esc(p.technology_type)}" data-state="${esc(p.state || "")}" data-status="${esc(p.status || "")}">
+       <a href="/project/${esc(p.slug)}">${esc(p.project_name)}</a>
+       <span><span class="status ${statusClass(p.status)}">${esc(p.status)}</span>&nbsp; ${esc(num(p.capacity_mw))} MW · ${esc(p.state || "")}</span>
+     </li>`;
+
+  // Group by technology only when sorted by technology or capacity (natural grouping);
+  // otherwise show a flat list so the chosen sort order is clearly visible.
+  let listHtml;
+  if (sort === "technology" || sort === "capacity") {
+    const groups = {};
+    for (const p of projects) {
+      const key = p.technology_type || "Other";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    }
+    listHtml = Object.entries(groups)
+      .map(([tech, items]) => {
+        const icon = TECH_ICONS[tech] || "⚡";
+        return `<div class="tech-group" data-tech="${esc(tech)}">
+          <h2>${icon} ${esc(tech)} <span style="font-weight:400;text-transform:none;font-size:13px">(${items.length})</span></h2>
+          <ul class="v">${items.map(projectRow).join("")}</ul>
+        </div>`;
+      })
+      .join("");
+  } else {
+    listHtml = `<div class="tech-group" data-tech="">
+      <ul class="v">${projects.map(projectRow).join("")}</ul>
+    </div>`;
   }
 
-  const techIcons = {
-    "Solar PV": "☀️",
-    "Battery Storage": "🔋",
-    "Onshore Wind": "🌬️",
-    "Offshore Wind": "🌊",
-  };
-
-  const projectsJson = safeJson(
-    projects.map((p) => ({
-      slug: p.slug,
-      name: p.project_name,
-      tech: p.technology_type || "",
-      mw: p.capacity_mw,
-      state: p.state || "",
-      status: p.status || "",
-    }))
-  );
-
-  const groupsHtml = Object.entries(groups)
-    .map(([tech, items]) => {
-      const icon = techIcons[tech] || "⚡";
-      const rows = items
-        .map(
-          (p) =>
-            `<li data-slug="${esc(p.slug)}" data-tech="${esc(p.technology_type)}" data-state="${esc(p.state || "")}" data-status="${esc(p.status || "")}">
-               <a href="/project/${esc(p.slug)}">${esc(p.project_name)}</a>
-               <span><span class="status ${statusClass(p.status)}">${esc(p.status)}</span>&nbsp; ${esc(num(p.capacity_mw))} MW · ${esc(p.state || "")}</span>
-             </li>`
-        )
-        .join("");
-      return `<div class="tech-group" data-tech="${esc(tech)}">
-        <h2>${icon} ${esc(tech)} <span style="font-weight:400;text-transform:none;font-size:13px">(${items.length})</span></h2>
-        <ul class="v">${rows}</ul>
-      </div>`;
-    })
-    .join("");
+  // Pagination links preserve current sort+dir
+  const pageLink = (p) => `/?page=${p}&sort=${sort}&dir=${dir}`;
+  const pager = totalPages > 1
+    ? `<nav class="pager" aria-label="Pagination">
+         ${page > 1 ? `<a href="${pageLink(page - 1)}">← Previous</a>` : `<span></span>`}
+         <span class="pager-info">Page ${page} of ${totalPages}</span>
+         ${page < totalPages ? `<a href="${pageLink(page + 1)}">Next →</a>` : `<span></span>`}
+       </nav>`
+    : "";
 
   const filterScript = `<script>
 (function(){
-  var data=${projectsJson};
   var inp=document.getElementById('fi');
   var sel=document.getElementById('fs');
   function applyFilter(){
     var q=(inp.value||'').toLowerCase();
     var st=sel.value;
-    var techGroups=document.querySelectorAll('.tech-group');
-    techGroups.forEach(function(g){
-      var tech=g.dataset.tech;
+    var groups=document.querySelectorAll('.tech-group');
+    groups.forEach(function(g){
       var items=g.querySelectorAll('li');
-      var visibleInGroup=0;
+      var vis=0;
       items.forEach(function(li){
         var matchQ=!q||li.querySelector('a').textContent.toLowerCase().includes(q)||
           (li.dataset.state||'').toLowerCase().includes(q);
         var matchS=!st||li.dataset.status===st;
-        var matchT=!tech||true;
         var show=matchQ&&matchS;
         li.style.display=show?'':'none';
-        if(show)visibleInGroup++;
+        if(show)vis++;
       });
-      g.style.display=visibleInGroup===0?'none':'';
+      g.style.display=vis===0?'none':'';
     });
-    var anyVisible=document.querySelectorAll('.tech-group:not([style*="display: none"])').length>0;
+    var any=document.querySelectorAll('.tech-group:not([style*="display: none"])').length>0;
     var nr=document.getElementById('no-results');
-    if(nr)nr.style.display=anyVisible?'none':'';
+    if(nr)nr.style.display=any?'none':'';
   }
   inp.addEventListener('input',applyFilter);
   sel.addEventListener('change',applyFilter);
@@ -322,13 +347,10 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1 }) {
            <option value="Planned">Planned</option>
          </select>
        </div>
+       ${sortBar}
        <p id="no-results" class="no-results" style="display:none">No projects match your filter.</p>
-       ${groupsHtml}
-       ${totalPages > 1 ? `<nav class="pager" aria-label="Pagination">
-         ${page > 1 ? `<a href="/?page=${page - 1}">← Previous</a>` : `<span></span>`}
-         <span class="pager-info">Page ${page} of ${totalPages}</span>
-         ${page < totalPages ? `<a href="/?page=${page + 1}">Next →</a>` : `<span></span>`}
-       </nav>` : ""}`,
+       ${listHtml}
+       ${pager}`,
       filterScript,
       tail,
     ],
