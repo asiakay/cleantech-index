@@ -47,11 +47,13 @@ describe("sitemap + featured helpers", () => {
     expect(s.projects).toContain("mustang-ridge-solar");
     expect(s.developers).toContain("prairie-wind-development");
   });
-  it("getFeaturedProjects returns all projects and stats", async () => {
-    const { projects, stats } = await getFeaturedProjects(env);
-    expect(projects.length).toBeGreaterThanOrEqual(4);
-    expect(stats.total_projects).toBe(projects.length);
+  it("getFeaturedProjects returns paginated projects and stats", async () => {
+    const { projects, stats, page, totalPages } = await getFeaturedProjects(env, 1, 2);
+    expect(projects.length).toBe(2);
+    expect(stats.total_projects).toBeGreaterThanOrEqual(4);
     expect(typeof stats.total_gw).toBe("number");
+    expect(page).toBe(1);
+    expect(totalPages).toBeGreaterThanOrEqual(2);
   });
 });
 

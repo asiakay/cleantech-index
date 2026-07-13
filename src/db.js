@@ -66,14 +66,16 @@ export async function getDeveloperBySlug(env, slug) {
   return { dev, projects: projRes.results };
 }
 
-/** All projects + index-wide stats for the home page, one batch round-trip. */
-export async function getFeaturedProjects(env) {
+/** Paginated projects + index-wide stats for the home page, one batch round-trip. */
+export async function getFeaturedProjects(env, page = 1, pageSize = 20) {
+  const offset = (page - 1) * pageSize;
   const [projRes, statsRes] = await env.DB.batch([
     env.DB.prepare(
       `SELECT project_name, slug, technology_type, capacity_mw, status, state
          FROM infrastructure_projects
-         ORDER BY capacity_mw DESC`
-    ),
+         ORDER BY capacity_mw DESC
+         LIMIT ? OFFSET ?`
+    ).bind(pageSize, offset),
     env.DB.prepare(
       `SELECT
          COUNT(*)                                      AS total_projects,
@@ -86,7 +88,14 @@ export async function getFeaturedProjects(env) {
        FROM infrastructure_projects`
     ),
   ]);
-  return { projects: projRes.results, stats: statsRes.results[0] };
+  const total = statsRes.results[0].total_projects ?? 0;
+  return {
+    projects: projRes.results,
+    stats: statsRes.results[0],
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 /** All slugs for the sitemap. */
