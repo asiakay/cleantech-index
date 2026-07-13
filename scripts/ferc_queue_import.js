@@ -85,7 +85,10 @@ const ISOS = [
   },
   {
     name: 'ERCOT',
-    url: 'https://www.ercot.com/files/docs/2024/08/01/ERCOT_Interconnection_Status.xlsx',
+    // ERCOT rotates paths by date; scrape the page to find the current link
+    url: null,
+    scrapeUrl: 'https://www.ercot.com/services/rq/re/riia',
+    scrapeLinkPattern: /ERCOT_Interconnection_Status\.xlsx/i,
     sheetHint: /status|queue|project/i,
     skipHeaderRows: 0,
     cols: {
@@ -103,7 +106,10 @@ const ISOS = [
   },
   {
     name: 'SPP',
-    url: 'https://www.spp.org/documents/18027/generator%20interconnection%20queue.xlsx',
+    // SPP document IDs rotate; scrape the queue page for the current xlsx link
+    url: null,
+    scrapeUrl: 'https://www.spp.org/engineering/generator-interconnection/generator-interconnection-queue/',
+    scrapeLinkPattern: /generator[^"]*interconnection[^"]*queue[^"]*\.xlsx/i,
     sheetHint: /queue|generator/i,
     skipHeaderRows: 0,
     cols: {
@@ -139,7 +145,10 @@ const ISOS = [
   },
   {
     name: 'ISO-NE',
-    url: 'https://www.iso-ne.com/static-assets/documents/sitepages/gen-int/GIS_Generators_In_Interconnection_Queue.xlsx',
+    // Scrape the ISO-NE interconnection queue page to find the current xlsx link
+    url: null,
+    scrapeUrl: 'https://www.iso-ne.com/system-planning/interconnection-service/interconnection-request-queue',
+    scrapeLinkPattern: /GIS_Generators[^"]*\.xlsx/i,
     sheetHint: /queue|generator/i,
     skipHeaderRows: 0,
     cols: {
@@ -201,6 +210,14 @@ function esc(v) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+async function scrapeXlsxUrl(pageUrl, pattern) {
+  const html = (await httpsGetBuf(pageUrl)).toString('utf8');
+  const matches = [...html.matchAll(/href="([^"]+\.xlsx[^"]*)"/gi)];
+  const hit = matches.map(m => m[1]).find(h => pattern.test(h));
+  if (!hit) return null;
+  return new URL(hit, pageUrl).href;
+}
+
 function httpsGetBuf(url) {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http;
@@ -219,7 +236,7 @@ function httpsGetBuf(url) {
           const next = loc.startsWith('http') ? loc : new URL(loc, u).href;
           return follow(next, depth + 1);
         }
-        if (res.statusCode !== 200) {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
           res.resume();
           return reject(new Error(`HTTP ${res.statusCode} for ${u}`));
         }
@@ -288,10 +305,28 @@ function extractYear(val) {
 // ── Process one ISO ───────────────────────────────────────────────────────────
 
 async function processISO(iso, developers, projects) {
-  console.log(`\n[${iso.name}] Downloading ${iso.url}`);
+  let downloadUrl = iso.url;
+
+  // ISOs with rotating URLs: scrape their page to find the current xlsx link
+  if (!downloadUrl && iso.scrapeUrl) {
+    console.log(`\n[${iso.name}] Scraping ${iso.scrapeUrl} for xlsx link...`);
+    try {
+      downloadUrl = await scrapeXlsxUrl(iso.scrapeUrl, iso.scrapeLinkPattern);
+    } catch (err) {
+      console.error(`  ERROR scraping page: ${err.message} — skipping ${iso.name}`);
+      return;
+    }
+    if (!downloadUrl) {
+      console.error(`  ERROR: no xlsx link found on page matching ${iso.scrapeLinkPattern} — skipping ${iso.name}`);
+      return;
+    }
+    console.log(`  Found: ${downloadUrl}`);
+  }
+
+  console.log(`\n[${iso.name}] Downloading ${downloadUrl}`);
   let buf;
   try {
-    buf = await httpsGetBuf(iso.url);
+    buf = await httpsGetBuf(downloadUrl);
   } catch (err) {
     console.error(`  ERROR: ${err.message} — skipping ${iso.name}`);
     return;
@@ -418,8 +453,8 @@ async function main() {
   }
 
   if (!projects.length) {
-    console.error('\nNo projects collected — check errors above. No SQL written.');
-    process.exit(1);
+    console.warn('\nWARN: No projects collected — all ISOs may have failed. Check errors above. No SQL written.');
+    process.exit(0); // non-fatal: EIA data may already be loaded
   }
 
   // ── Write ferc_queue.sql ──

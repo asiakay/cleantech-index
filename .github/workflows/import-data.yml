@@ -66,11 +66,13 @@ jobs:
 
       - name: Run FERC queue import
         if: ${{ github.event_name == 'schedule' || inputs.run_ferc }}
+        continue-on-error: true  # FERC is supplementary; don't block if ISO portals are down
         run: node scripts/ferc_queue_import.js
         # Script writes ferc_queue.sql in repo root
 
       - name: Apply FERC queue data to D1
         if: ${{ github.event_name == 'schedule' || inputs.run_ferc }}
+        continue-on-error: true
         run: |
           if [ ! -f ferc_queue.sql ]; then
             echo "ferc_queue.sql not found — skipping"
