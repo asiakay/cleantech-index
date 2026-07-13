@@ -33,7 +33,6 @@ const ISOS = [
     name: 'MISO',
     url: 'https://www.misoenergy.org/planning/generator-interconnection/GI_Queue/GI_Queue_Active.xlsx',
     sheetHint: /active|queue/i,
-    skipHeaderRows: 0,
     cols: {
       projectName:   ['Project Name', 'Name'],
       queueId:       ['Queue ID', 'Queue Position', 'Project Number'],
@@ -49,9 +48,11 @@ const ISOS = [
   },
   {
     name: 'PJM',
-    url: 'https://www.pjm.com/-/media/planning/interconnection-planning/pjm-interconnection-queues.ashx',
-    sheetHint: /queue|active/i,
-    skipHeaderRows: 0,
+    // PJM rotates xlsx file paths; scrape their interconnection page for the current link
+    url: null,
+    scrapeUrl: 'https://www.pjm.com/planning/interconnection-planning',
+    scrapeLinkPattern: /interconnection[^"]*queue[^"]*\.xlsx|pjm[^"]*queue[^"]*\.xlsx/i,
+    sheetHint: /queue|active|generator/i,
     cols: {
       projectName:   ['Project Name', 'Name'],
       queueId:       ['Queue Position', 'Queue Number', 'Queue ID'],
@@ -67,9 +68,11 @@ const ISOS = [
   },
   {
     name: 'CAISO',
-    url: 'https://www.caiso.com/Documents/GeneratorInterconnectionandInteroperabilityQueue.xlsx',
-    sheetHint: /queue|generator/i,
-    skipHeaderRows: 0,
+    // CAISO interconnection queue — scrape their public page to find the current xlsx link
+    url: null,
+    scrapeUrl: 'https://www.caiso.com/planning/Pages/GeneratorInterconnection/Default.aspx',
+    scrapeLinkPattern: /GeneratorInterconnection[^"]*Queue[^"]*\.xlsx|GI[^"]*Queue[^"]*\.xlsx/i,
+    sheetHint: /queue|generator|active/i,
     cols: {
       projectName:   ['Project Name', 'Name'],
       queueId:       ['Queue Position', 'Application Number', 'Queue #'],
@@ -87,8 +90,8 @@ const ISOS = [
     name: 'ERCOT',
     // ERCOT rotates paths by date; scrape the page to find the current link
     url: null,
-    scrapeUrl: 'https://www.ercot.com/services/rq/re/riia',
-    scrapeLinkPattern: /ERCOT_Interconnection_Status\.xlsx/i,
+    scrapeUrl: 'https://www.ercot.com/gridinfo/resource',
+    scrapeLinkPattern: /ERCOT_Interconnection_Status\.xlsx|Interconnection_Status\.xlsx/i,
     sheetHint: /status|queue|project/i,
     skipHeaderRows: 0,
     cols: {
@@ -111,7 +114,6 @@ const ISOS = [
     scrapeUrl: 'https://www.spp.org/engineering/generator-interconnection/generator-interconnection-queue/',
     scrapeLinkPattern: /generator[^"]*interconnection[^"]*queue[^"]*\.xlsx/i,
     sheetHint: /queue|generator/i,
-    skipHeaderRows: 0,
     cols: {
       projectName:   ['Project Name', 'Name', 'Gen Name'],
       queueId:       ['Queue ID', 'Request ID', 'Position'],
@@ -127,9 +129,11 @@ const ISOS = [
   },
   {
     name: 'NYISO',
-    url: 'https://www.nyiso.com/documents/20142/2226333/NYISO-Interconnection-Queue.xlsx',
-    sheetHint: /queue|active/i,
-    skipHeaderRows: 0,
+    // NYISO documents portal — scrape for the current interconnection queue xlsx
+    url: null,
+    scrapeUrl: 'https://www.nyiso.com/interconnections',
+    scrapeLinkPattern: /NYISO[^"]*Interconnection[^"]*Queue[^"]*\.xlsx|Interconnection[^"]*Queue[^"]*\.xlsx/i,
+    sheetHint: /queue|active|generator/i,
     cols: {
       projectName:   ['Project Name', 'Name'],
       queueId:       ['Queue ID', 'Queue Position', 'Application Number'],
@@ -145,12 +149,11 @@ const ISOS = [
   },
   {
     name: 'ISO-NE',
-    // Scrape the ISO-NE interconnection queue page to find the current xlsx link
-    url: null,
+    // ISO-NE publishes a static xlsx path; fall back to scraping the page if direct fails
+    url: 'https://www.iso-ne.com/static-assets/documents/sitepages/gen-int/GIS_Generators_In_Interconnection_Queue.xlsx',
     scrapeUrl: 'https://www.iso-ne.com/system-planning/interconnection-service/interconnection-request-queue',
-    scrapeLinkPattern: /GIS_Generators[^"]*\.xlsx/i,
+    scrapeLinkPattern: /GIS_Generators[^"]*\.xlsx|Interconnection[^"]*Queue[^"]*\.xlsx/i,
     sheetHint: /queue|generator/i,
-    skipHeaderRows: 0,
     cols: {
       projectName:   ['Project Name', 'Name', 'Facility Name'],
       queueId:       ['Queue ID', 'Application Number', 'Request ID'],
@@ -212,8 +215,14 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function scrapeXlsxUrl(pageUrl, pattern) {
   const html = (await httpsGetBuf(pageUrl)).toString('utf8');
-  const matches = [...html.matchAll(/href="([^"]+\.xlsx[^"]*)"/gi)];
-  const hit = matches.map(m => m[1]).find(h => pattern.test(h));
+  // Match both href and src attributes containing .xlsx
+  const hrefMatches = [...html.matchAll(/href="([^"]+\.xlsx[^"]*)"/gi)].map(m => m[1]);
+  const srcMatches  = [...html.matchAll(/src="([^"]+\.xlsx[^"]*)"/gi)].map(m => m[1]);
+  const all = [...hrefMatches, ...srcMatches];
+  // Also look for bare URLs in script/data attributes
+  const dataMatches = [...html.matchAll(/["']((?:https?:\/\/[^"']+|\/[^"']+)\.xlsx[^"']*?)["']/gi)].map(m => m[1]);
+  const candidates = [...all, ...dataMatches];
+  const hit = candidates.find(h => pattern.test(h));
   if (!hit) return null;
   return new URL(hit, pageUrl).href;
 }
@@ -323,13 +332,46 @@ async function processISO(iso, developers, projects) {
     console.log(`  Found: ${downloadUrl}`);
   }
 
+  // ISOs with a known direct URL but also a scrapeUrl fallback (e.g. ISO-NE)
+  // We'll try the direct URL first; if it fails, fall back to scraping
+  if (downloadUrl && iso.scrapeUrl) {
+    // We'll handle fallback in the download block below
+  }
+
   console.log(`\n[${iso.name}] Downloading ${downloadUrl}`);
   let buf;
   try {
     buf = await httpsGetBuf(downloadUrl);
+    if (buf.length < 1000 && iso.scrapeUrl) {
+      // Direct URL gave tiny/empty response; try scraping for a better URL
+      console.log(`  Direct URL gave ${buf.length} bytes — trying scrape fallback...`);
+      const fallback = await scrapeXlsxUrl(iso.scrapeUrl, iso.scrapeLinkPattern).catch(() => null);
+      if (fallback && fallback !== downloadUrl) {
+        console.log(`  Fallback URL: ${fallback}`);
+        buf = await httpsGetBuf(fallback);
+      }
+    }
   } catch (err) {
-    console.error(`  ERROR: ${err.message} — skipping ${iso.name}`);
-    return;
+    // Direct URL failed; try scrape fallback if available
+    if (iso.scrapeUrl) {
+      console.log(`  Direct URL failed (${err.message}) — trying scrape fallback from ${iso.scrapeUrl}`);
+      try {
+        const fallback = await scrapeXlsxUrl(iso.scrapeUrl, iso.scrapeLinkPattern);
+        if (fallback) {
+          console.log(`  Fallback URL: ${fallback}`);
+          buf = await httpsGetBuf(fallback);
+        } else {
+          console.error(`  ERROR: no xlsx link found on fallback page — skipping ${iso.name}`);
+          return;
+        }
+      } catch (err2) {
+        console.error(`  ERROR: ${err2.message} — skipping ${iso.name}`);
+        return;
+      }
+    } else {
+      console.error(`  ERROR: ${err.message} — skipping ${iso.name}`);
+      return;
+    }
   }
 
   if (buf.length < 1000) {
@@ -348,7 +390,20 @@ async function processISO(iso, developers, projects) {
   const sheetName = wb.SheetNames.find(n => iso.sheetHint.test(n)) ?? wb.SheetNames[0];
   console.log(`  Sheet: "${sheetName}"`);
   const ws = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
+
+  // Detect real header row (some ISOs have preamble rows before the column header row)
+  const HEADER_KEYWORDS = ['project', 'queue', 'developer', 'capacity', 'technology', 'status',
+    'fuel', 'mw', 'applicant', 'customer', 'interconnection', 'state'];
+  const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+  let headerRowIdx = 0;
+  for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+    const rowStr = rawRows[r].map(c => String(c ?? '').toLowerCase()).join(' ');
+    const hits = HEADER_KEYWORDS.filter(k => rowStr.includes(k)).length;
+    if (hits >= 2) { headerRowIdx = r; break; }
+  }
+  if (headerRowIdx > 0) console.log(`  Detected header row at index ${headerRowIdx} (${headerRowIdx} preamble rows skipped)`);
+
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: null, raw: false, range: headerRowIdx });
 
   if (!rows.length) { console.error('  ERROR: Sheet is empty — skipping'); return; }
 
