@@ -42,6 +42,7 @@ import {
   getDashboardData,
   saveFilter,
   deleteFilter,
+  isMemberEmail,
 } from "./db.js";
 import {
   verifyStripeSignature,
@@ -189,7 +190,11 @@ async function handleDeveloper(slug, env, origin) {
 async function handleAccount(request, env) {
   const cookies = parseCookies(request.headers.get("Cookie"));
   const session = await verifyPayload(env.SIGNING_SECRET, cookies[SESSION_COOKIE]);
-  const isMember = !!(session && session.paid === true);
+  let isMember = !!(session && session.paid === true);
+  if (!isMember) {
+    const user = await resolveUser(request, env);
+    if (user?.email) isMember = await isMemberEmail(env, user.email);
+  }
   return html(renderAccount(isMember, session).chunks, { headers: { "cache-control": "private, no-store" } });
 }
 
@@ -209,7 +214,9 @@ async function handleProject(slug, request, env, origin) {
   const user = await resolveUser(request, env);
 
   const session = await verifyPayload(env.SIGNING_SECRET, cookies[SESSION_COOKIE]);
-  if (session && session.paid === true) {
+  const cookieMember = !!(session && session.paid === true);
+  const dbMember = !cookieMember && user?.email ? await isMemberEmail(env, user.email) : false;
+  if (cookieMember || dbMember) {
     // Member: unlimited, meter untouched.
     const userCtx = user ? await buildUserProjectCtx(env, user, slug) : null;
     return html(renderProjectPage(project, project.vendors, null, origin, userCtx).chunks, {

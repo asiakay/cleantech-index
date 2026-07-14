@@ -159,6 +159,15 @@ export async function getMemberBySessionId(env, stripeSessionId) {
     .first();
 }
 
+/** Returns true if the given email has a recorded membership (cross-device check). */
+export async function isMemberEmail(env, email) {
+  if (!email) return false;
+  const row = await env.DB.prepare(`SELECT 1 FROM members WHERE email = ? LIMIT 1`)
+    .bind(email)
+    .first();
+  return !!row;
+}
+
 // ─── User saved data ────────────────────────────────────────────────────────
 
 /** Toggle a bookmark. Returns true if now bookmarked, false if removed. */
