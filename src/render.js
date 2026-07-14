@@ -351,8 +351,11 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
        <span><span class="status ${statusClass(p.status)}">${esc(p.status)}</span>&nbsp; ${esc(num(p.capacity_mw))} MW · ${esc(p.state || "")}</span>
      </li>`;
 
+  // Collect unique states for autocomplete datalist
+  const uniqueStates = [...new Set(projects.map(p => p.state).filter(Boolean))].sort();
+
   // Group by technology only when sorted by technology or capacity (natural grouping);
-  // otherwise show a flat list so the chosen sort order is clearly visible.
+  // group by state when sorted by state; otherwise show a flat list.
   let listHtml;
   if (sort === "technology" || sort === "capacity") {
     const groups = {};
@@ -366,6 +369,26 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
         const icon = TECH_ICONS[tech] || "⚡";
         return `<div class="tech-group" data-tech="${esc(tech)}">
           <h2>${icon} ${esc(tech)} <span style="font-weight:400;text-transform:none;font-size:13px">(${items.length})</span></h2>
+          <ul class="v">${items.map(projectRow).join("")}</ul>
+        </div>`;
+      })
+      .join("");
+  } else if (sort === "state") {
+    const groups = {};
+    for (const p of projects) {
+      const key = p.state || "Unknown";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    }
+    // Preserve server sort order (asc/desc) for group keys
+    const orderedKeys = dir === "asc"
+      ? Object.keys(groups).sort()
+      : Object.keys(groups).sort().reverse();
+    listHtml = orderedKeys
+      .map(state => {
+        const items = groups[state];
+        return `<div class="tech-group" data-tech="${esc(state)}">
+          <h2>📍 ${esc(state)} <span style="font-weight:400;text-transform:none;font-size:13px">(${items.length})</span></h2>
           <ul class="v">${items.map(projectRow).join("")}</ul>
         </div>`;
       })
@@ -429,8 +452,9 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
       `<h1>CleanTech Index</h1>
        <p class="sub">U.S. clean energy infrastructure — solar, wind, and battery storage projects with capacity, status, and hardware suppliers.</p>
        ${statsBar}
+       <datalist id="state-list">${uniqueStates.map(s => `<option value="${esc(s)}">`).join("")}</datalist>
        <div class="filter-bar">
-         <input id="fi" type="search" placeholder="Filter by name or state…" aria-label="Filter projects">
+         <input id="fi" type="search" placeholder="Filter by name or state…" aria-label="Filter projects" list="state-list" autocomplete="off">
          <select id="fs" aria-label="Filter by status" onchange="var v=this.value;window.location.href='/?sort=${esc(sort)}&dir=${esc(dir)}&page=1'+(v?'&status='+encodeURIComponent(v):'')">
            <option value=""${!status ? " selected" : ""}>All statuses</option>
            <option value="Operational"${status === "Operational" ? " selected" : ""}>Operational</option>
