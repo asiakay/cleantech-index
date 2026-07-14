@@ -37,6 +37,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Push secrets from GitHub into Cloudflare's encrypted secret store.
+      # Add a new line here whenever you add a new secret.
+      - name: Sync secrets to Cloudflare
+        run: |
+          echo "${{ secrets.SIGNING_SECRET }}"      | npx wrangler secret put SIGNING_SECRET
+          echo "${{ secrets.RESEND_API_KEY }}"      | npx wrangler secret put RESEND_API_KEY
+          echo "${{ secrets.STRIPE_SECRET_KEY }}"   | npx wrangler secret put STRIPE_SECRET_KEY      || true
+          echo "${{ secrets.STRIPE_WEBHOOK_SECRET }}" | npx wrangler secret put STRIPE_WEBHOOK_SECRET || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy Worker
         run: npx wrangler deploy
         env:
