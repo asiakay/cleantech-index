@@ -307,7 +307,7 @@ const TECH_ICONS = {
 };
 
 /** Home page with stats bar, sort controls, tech-grouped list, client-side filter, and pagination. */
-export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc", status = "" }, user = null) {
+export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc", status = "", state = "", states = [] }, user = null) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
@@ -327,6 +327,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
 
   // Sort controls — clicking the active col toggles direction; others default to their natural dir
   const statusQs = status ? `&status=${encodeURIComponent(status)}` : "";
+  const stateQs  = state  ? `&state=${encodeURIComponent(state)}`   : "";
 
   const SORT_OPTS = [
     { key: "capacity",   label: "Capacity",   defaultDir: "desc" },
@@ -341,7 +342,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
       const isActive = key === sort;
       const nextDir = isActive ? (dir === "asc" ? "desc" : "asc") : defaultDir;
       const arrow = isActive ? (dir === "asc" ? " ↑" : " ↓") : "";
-      return `<a href="/?sort=${key}&dir=${nextDir}&page=1${statusQs}" class="sort-btn${isActive ? " sort-active" : ""}">${esc(label)}${arrow}</a>`;
+      return `<a href="/?sort=${key}&dir=${nextDir}&page=1${statusQs}${stateQs}" class="sort-btn${isActive ? " sort-active" : ""}">${esc(label)}${arrow}</a>`;
     }).join("")}
   </div>`;
 
@@ -350,9 +351,6 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
        <a href="/project/${esc(p.slug)}">${esc(p.project_name)}</a>
        <span><span class="status ${statusClass(p.status)}">${esc(p.status)}</span>&nbsp; ${esc(num(p.capacity_mw))} MW · ${esc(p.state || "")}</span>
      </li>`;
-
-  // Collect unique states for autocomplete datalist
-  const uniqueStates = [...new Set(projects.map(p => p.state).filter(Boolean))].sort();
 
   // Group by technology only when sorted by technology or capacity (natural grouping);
   // group by state when sorted by state; otherwise show a flat list.
@@ -400,7 +398,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
   }
 
   // Pagination links preserve current sort+dir+status
-  const pageLink = (p) => `/?page=${p}&sort=${sort}&dir=${dir}${statusQs}`;
+  const pageLink = (p) => `/?page=${p}&sort=${sort}&dir=${dir}${statusQs}${stateQs}`;
   const pager = totalPages > 1
     ? `<nav class="pager" aria-label="Pagination">
          ${page > 1 ? `<a href="${pageLink(page - 1)}">← Previous</a>` : `<span></span>`}
@@ -419,8 +417,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
       var items=g.querySelectorAll('li');
       var vis=0;
       items.forEach(function(li){
-        var show=!q||li.querySelector('a').textContent.toLowerCase().includes(q)||
-          (li.dataset.state||'').toLowerCase().includes(q);
+        var show=!q||li.querySelector('a').textContent.toLowerCase().includes(q);
         li.style.display=show?'':'none';
         if(show)vis++;
       });
@@ -434,11 +431,23 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
 })();
 </script>`;
 
+  const baseQs = `sort=${esc(sort)}&dir=${esc(dir)}&page=1`;
+  const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
+  const stateParam  = state  ? `&state=${encodeURIComponent(state)}`   : "";
+
+  const stateSelect = states.length
+    ? `<select id="fst" aria-label="Filter by state" onchange="var v=this.value;window.location.href='/?${baseQs}${statusParam}'+(v?'&state='+encodeURIComponent(v):'')">
+         <option value=""${!state ? " selected" : ""}>All states</option>
+         ${states.map(s => `<option value="${esc(s)}"${state === s ? " selected" : ""}>${esc(s)}</option>`).join("")}
+       </select>`
+    : "";
+
   const saveFilterBtn = user
     ? `<form method="POST" action="/saved-filters" style="display:inline">
          <input type="hidden" name="sort" value="${esc(sort)}">
          <input type="hidden" name="dir" value="${esc(dir)}">
          <input type="hidden" name="status" value="${esc(status)}">
+         <input type="hidden" name="state" value="${esc(state)}">
          <input type="hidden" name="page" value="${esc(String(page))}">
          <button class="btn btn-sm" type="submit" title="Save current sort &amp; filter as a named view">Save filter…</button>
        </form>`
@@ -452,15 +461,15 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
       `<h1>CleanTech Index</h1>
        <p class="sub">U.S. clean energy infrastructure — solar, wind, and battery storage projects with capacity, status, and hardware suppliers.</p>
        ${statsBar}
-       <datalist id="state-list">${uniqueStates.map(s => `<option value="${esc(s)}">`).join("")}</datalist>
        <div class="filter-bar">
-         <input id="fi" type="search" placeholder="Filter by name or state…" aria-label="Filter projects" list="state-list" autocomplete="off">
-         <select id="fs" aria-label="Filter by status" onchange="var v=this.value;window.location.href='/?sort=${esc(sort)}&dir=${esc(dir)}&page=1'+(v?'&status='+encodeURIComponent(v):'')">
+         <input id="fi" type="search" placeholder="Filter by name…" aria-label="Filter projects by name">
+         <select id="fs" aria-label="Filter by status" onchange="var v=this.value;window.location.href='/?${baseQs}${stateParam}'+(v?'&status='+encodeURIComponent(v):'')">
            <option value=""${!status ? " selected" : ""}>All statuses</option>
            <option value="Operational"${status === "Operational" ? " selected" : ""}>Operational</option>
            <option value="Under Construction"${status === "Under Construction" ? " selected" : ""}>Under Construction</option>
            <option value="Planned"${status === "Planned" ? " selected" : ""}>Planned</option>
          </select>
+         ${stateSelect}
          ${saveFilterBtn}
        </div>
        ${sortBar}
