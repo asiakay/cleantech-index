@@ -17,10 +17,10 @@ STRIPE_UNLOCK_AMOUNT_CENTS = "900"                       # $9.00 one-time unlock
 MEMBER_TOKEN_TTL_DAYS = "365"
 
 # SECRETS — never commit these. Set with `wrangler secret put <NAME>`:
-   wrangler secret put SIGNING_SECRET          (required)
-   wrangler secret put STRIPE_SECRET_KEY       (enables /unlock)
-   wrangler secret put STRIPE_WEBHOOK_SECRET   (enables /webhook/stripe)
-   wrangler secret put RESEND_API_KEY          (required for magic-link login — get one at resend.com)
+#   wrangler secret put SIGNING_SECRET          (required)
+#   wrangler secret put STRIPE_SECRET_KEY       (enables /unlock)
+#   wrangler secret put STRIPE_WEBHOOK_SECRET   (enables /webhook/stripe)
+#   wrangler secret put RESEND_API_KEY          (required for magic-link login — get one at resend.com)
 # For local dev, put the same names in .dev.vars (git-ignored). See .dev.vars.example.
 
 # Optional: override the From address used for magic-link emails.
