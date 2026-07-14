@@ -66,6 +66,34 @@ color:var(--ink);background:#fff;text-decoration:none;white-space:nowrap}
 .sort-btn:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
 .sort-active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
 .sort-active:hover{color:#fff}
+.nav-bar{display:flex;justify-content:flex-end;gap:12px;font-size:13px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.nav-bar a{color:var(--mut)}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:8px;
+border:1px solid var(--line);background:#fff;color:var(--ink);font-size:13px;cursor:pointer;text-decoration:none}
+.btn:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.active:hover{color:#fff}
+.btn-sm{padding:4px 10px;font-size:12px}
+.user-panel{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-top:28px}
+.user-panel h2{margin-top:0}
+textarea.note-box{width:100%;min-height:80px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+font:14px/1.5 inherit;color:var(--ink);background:#fff;resize:vertical;outline:none}
+textarea.note-box:focus{border-color:var(--accent)}
+.form-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.form-row input[type=text],.form-row input[type=email]{flex:1 1 200px;padding:8px 12px;border:1px solid var(--line);
+border-radius:8px;font-size:14px;background:#fff;color:var(--ink);outline:none}
+.form-row input:focus{border-color:var(--accent)}
+.dash-section{margin-bottom:32px}
+.dash-section h2{margin-bottom:10px}
+.wl-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+.wl-card h3{margin:0 0 8px;font-size:15px}
+.wl-card ul{margin:0;padding:0;list-style:none}
+.wl-card ul li{padding:6px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-size:14px}
+.wl-card ul li:last-child{border-bottom:none}
+.tag{font-size:11px;color:var(--mut);background:var(--line);padding:2px 7px;border-radius:999px}
+.msg{padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:14px}
+.msg.ok{background:#f1faf4;border:1px solid #c9e6d5;color:#0f6a3d}
+.msg.err{background:#fff8f0;border:1px solid #f0d9bf;color:var(--warn)}
 `;
 
 const statusClass = (s) =>
@@ -88,16 +116,27 @@ ${canonical ? `<link rel="canonical" href="${esc(canonical)}">` : ""}
 <meta property="og:type" content="website">
 ${jsonLd ? `<script type="application/ld+json">${jsonLd}</script>` : ""}
 <style>${CSS}</style>
-</head><body><div class="${wrapClass}">`;
+</head><body><div class="${wrapClass}">`
+}
+
+function navBar(user) {
+  if (user) {
+    return `<nav class="nav-bar">
+      <a href="/dashboard">My saved items</a>
+      <a href="/account">Account</a>
+      <form method="POST" action="/auth/logout" style="margin:0"><button class="btn btn-sm" type="submit">Sign out</button></form>
+    </nav>`;
+  }
+  return `<nav class="nav-bar"><a href="/login">Sign in</a></nav>`;
 }
 
 const tail = `</div></body></html>`;
 
 /**
  * Project page. `p` is the flat DB row (with `p.vendors` array); `freeViewsLeft` is
- * int, or null for a member (unlimited).
+ * int, or null for a member (unlimited). `userCtx` is { user, bookmarked, note, watchlists } or null.
  */
-export function renderProjectPage(p, vendors, freeViewsLeft, origin) {
+export function renderProjectPage(p, vendors, freeViewsLeft, origin, userCtx = null) {
   const capStr = p.capacity_mw != null ? `${num(p.capacity_mw)} MW` : "";
   // Required meta format: "Project Name - Capacity MW Technology Type Infrastructure | CleanTech Index"
   const title =
@@ -131,8 +170,51 @@ export function renderProjectPage(p, vendors, freeViewsLeft, origin) {
         .join("")}</ul>`
     : "";
 
+  // User panel: bookmark + note + watchlist controls
+  let userPanel = "";
+  if (userCtx?.user) {
+    const { bookmarked, note, watchlists } = userCtx;
+    const bmLabel = bookmarked ? "★ Bookmarked" : "☆ Bookmark";
+    const bmClass = bookmarked ? "btn active" : "btn";
+
+    const watchlistOptions = watchlists.length
+      ? watchlists.map(
+          (wl) =>
+            `<option value="${esc(String(wl.id))}">${esc(wl.name)}</option>`
+        ).join("")
+      : `<option value="" disabled>No watchlists yet</option>`;
+
+    const watchlistDropdown = `
+      <form method="POST" action="/watchlists/add" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="hidden" name="slug" value="${esc(p.slug)}">
+        <select name="watchlist_id" style="padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink)">
+          ${watchlistOptions}
+        </select>
+        <button class="btn btn-sm" type="submit"${watchlists.length ? "" : " disabled"}>Add to watchlist</button>
+      </form>`;
+
+    userPanel = `<div class="user-panel">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <form method="POST" action="/bookmarks" style="margin:0">
+          <input type="hidden" name="slug" value="${esc(p.slug)}">
+          <button class="${bmClass}" type="submit">${bmLabel}</button>
+        </form>
+        ${watchlistDropdown}
+        <a href="/dashboard" class="btn btn-sm">My saved items →</a>
+      </div>
+      <h2 style="margin-top:0">Private note</h2>
+      <form method="POST" action="/notes/${esc(p.slug)}">
+        <textarea class="note-box" name="note" placeholder="Add a private note about this project…">${esc(note)}</textarea>
+        <div class="form-row"><button class="btn btn-sm" type="submit">Save note</button></div>
+      </form>
+    </div>`;
+  } else {
+    userPanel = `<div class="foot" style="margin-top:20px"><a href="/login">Sign in</a> to bookmark projects and save notes.</div>`;
+  }
+
   const chunks = [
     head(title, description, canonical, jsonLd),
+    navBar(userCtx?.user),
     `<div class="crumb"><a href="/">CleanTech Index</a> › <a href="/developer/${esc(p.developer_slug)}">${esc(p.developer_name)}</a> › ${esc(p.project_name)}</div>
      <div style="margin-bottom:14px">${meter}</div>
      <h1>${esc(p.project_name)}</h1>
@@ -148,6 +230,7 @@ export function renderProjectPage(p, vendors, freeViewsLeft, origin) {
       ${row("Developer portfolio", p.total_portfolio_mw != null ? esc(num(p.total_portfolio_mw)) + " MW" : "")}
      </table>`,
     vendorList,
+    userPanel,
     `<div class="foot">Data listing for ${esc(p.project_name)}. Part of the CleanTech Index directory.</div>`,
     tail,
   ];
@@ -224,7 +307,7 @@ const TECH_ICONS = {
 };
 
 /** Home page with stats bar, sort controls, tech-grouped list, client-side filter, and pagination. */
-export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc", status = "" }) {
+export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "capacity", dir = "desc", status = "" }, user = null) {
   const title = "CleanTech Index — U.S. clean energy infrastructure directory";
   const description =
     "Browse solar, wind, and battery storage projects: capacity, status, interconnection, and hardware suppliers.";
@@ -328,10 +411,21 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
 })();
 </script>`;
 
+  const saveFilterBtn = user
+    ? `<form method="POST" action="/saved-filters" style="display:inline">
+         <input type="hidden" name="sort" value="${esc(sort)}">
+         <input type="hidden" name="dir" value="${esc(dir)}">
+         <input type="hidden" name="status" value="${esc(status)}">
+         <input type="hidden" name="page" value="${esc(String(page))}">
+         <button class="btn btn-sm" type="submit" title="Save current sort &amp; filter as a named view">Save filter…</button>
+       </form>`
+    : "";
+
   return {
     title,
     chunks: [
       head(title, description, null, null),
+      navBar(user),
       `<h1>CleanTech Index</h1>
        <p class="sub">U.S. clean energy infrastructure — solar, wind, and battery storage projects with capacity, status, and hardware suppliers.</p>
        ${statsBar}
@@ -343,6 +437,7 @@ export function renderHome({ projects, stats, page = 1, totalPages = 1, sort = "
            <option value="Under Construction"${status === "Under Construction" ? " selected" : ""}>Under Construction</option>
            <option value="Planned"${status === "Planned" ? " selected" : ""}>Planned</option>
          </select>
+         ${saveFilterBtn}
        </div>
        ${sortBar}
        <p id="no-results" class="no-results" style="display:none">No projects match your filter.</p>
@@ -366,6 +461,142 @@ export function renderAccount(isMember, session) {
        <p class="sub">You're on the free tier (${FREE_LIMIT} project views).</p>
        <a class="cta" href="/unlock">Unlock full access</a>`;
   return { title, chunks: [head(title, description, null, null, "gate"), body, tail] };
+}
+
+/** Login page — shows email form or a "check your email" confirmation. */
+export function renderLogin(opts = {}) {
+  const { sent = false, error = null, flash = null } = opts;
+  const title = "Sign in | CleanTech Index";
+  const description = "Sign in to CleanTech Index to save projects, build watchlists, and add notes.";
+  const body = sent
+    ? `<h1>Check your email</h1>
+       <p class="sub">We sent a sign-in link to your address. Click it to log in — it expires in 15 minutes.</p>
+       <p style="font-size:13px;color:var(--mut)">Wrong address? <a href="/login">Try again</a>.</p>`
+    : `<h1>Sign in to CleanTech Index</h1>
+       <p class="sub">Enter your email and we'll send you a one-time sign-in link.</p>
+       ${error ? `<p class="msg err">${esc(error)}</p>` : ""}
+       ${flash ? `<p class="msg ok">${esc(flash)}</p>` : ""}
+       <form method="POST" action="/auth/login" style="max-width:360px;margin-top:8px">
+         <div class="form-row" style="flex-direction:column;align-items:stretch">
+           <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" style="width:100%">
+           <button class="cta" type="submit" style="margin-top:10px;text-align:center">Send sign-in link</button>
+         </div>
+       </form>
+       <p style="font-size:13px;color:var(--mut);margin-top:18px">No password needed. Free to create an account.</p>`;
+  return { title, chunks: [head(title, description, null, null, "gate"), body, tail] };
+}
+
+/** Dashboard — user's bookmarks, watchlists, notes, saved filters. */
+export function renderDashboard(user, data, flash = null) {
+  const { bookmarks, watchlists, notes, filters } = data;
+  const title = "My saved items | CleanTech Index";
+  const description = "Your bookmarked projects, watchlists, notes, and saved filters.";
+
+  const projectLink = (slug, name) =>
+    slug ? `<a href="/project/${esc(slug)}">${esc(name || slug)}</a>` : esc(name || slug);
+
+  const bmSection = `<div class="dash-section">
+    <h2>Bookmarks (${bookmarks.length})</h2>
+    ${bookmarks.length
+      ? `<ul class="v">${bookmarks.map((b) =>
+          `<li>${projectLink(b.project_slug, b.project_name)}
+           <span>${esc(b.technology_type || "")} · ${esc(b.state || "")}</span></li>`
+        ).join("")}</ul>`
+      : `<p class="sub">No bookmarks yet. Browse <a href="/">projects</a> and click Bookmark.</p>`
+    }
+  </div>`;
+
+  const wlSection = `<div class="dash-section">
+    <h2>Watchlists (${watchlists.length})</h2>
+    ${watchlists.map((wl) => `
+      <div class="wl-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>${esc(wl.name)}</h3>
+          <form method="POST" action="/watchlists/${esc(String(wl.id))}/delete" style="margin:0">
+            <button class="btn btn-sm" type="submit" style="color:var(--warn);border-color:#f0d9bf">Delete</button>
+          </form>
+        </div>
+        ${wl.items.length
+          ? `<ul>${wl.items.map((it) =>
+              `<li>${projectLink(it.project_slug, it.project_name)}
+               <span>${esc(it.technology_type || "")} · ${esc(it.state || "")}</span></li>`
+            ).join("")}</ul>`
+          : `<p style="font-size:14px;color:var(--mut);margin:0">Empty — add projects from their project pages.</p>`
+        }
+      </div>`).join("")}
+    <form method="POST" action="/watchlists" class="form-row" style="margin-top:12px">
+      <input type="text" name="name" placeholder="New watchlist name…" required>
+      <button class="btn" type="submit">Create watchlist</button>
+    </form>
+  </div>`;
+
+  const notesSection = `<div class="dash-section">
+    <h2>Notes (${notes.length})</h2>
+    ${notes.length
+      ? `<ul class="v">${notes.map((n) =>
+          `<li style="flex-direction:column;align-items:flex-start;gap:4px">
+             <div>${projectLink(n.project_slug, n.project_name)} <span class="tag">${esc(n.updated_at?.slice(0, 10) || "")}</span></div>
+             <p style="margin:0;font-size:14px;color:var(--mut);white-space:pre-wrap">${esc(n.note)}</p>
+           </li>`
+        ).join("")}</ul>`
+      : `<p class="sub">No notes yet. Add private notes from any project page.</p>`
+    }
+  </div>`;
+
+  const filtersSection = `<div class="dash-section">
+    <h2>Saved filters (${filters.length})</h2>
+    ${filters.length
+      ? `<ul class="v">${filters.map((f) => {
+          const params = (() => { try { return JSON.parse(f.filter_json); } catch { return {}; } })();
+          const qs = new URLSearchParams(params).toString();
+          return `<li>
+            <a href="/?${esc(qs)}">${esc(f.name)}</a>
+            <form method="POST" action="/saved-filters/${esc(String(f.id))}/delete" style="margin:0">
+              <button class="btn btn-sm" type="submit" style="color:var(--warn);border-color:#f0d9bf">Remove</button>
+            </form>
+          </li>`;
+        }).join("")}</ul>`
+      : `<p class="sub">No saved filters. Use the Save filter button on the home page.</p>`
+    }
+  </div>`;
+
+  return {
+    title,
+    chunks: [
+      head(title, description, null, null),
+      navBar(user),
+      flash ? `<p class="msg ok">${esc(flash)}</p>` : "",
+      `<h1>My saved items</h1><p class="sub">${esc(user.email)}</p>`,
+      bmSection,
+      wlSection,
+      notesSection,
+      filtersSection,
+      tail,
+    ],
+  };
+}
+
+/** Save filter name prompt — shown when user clicks "Save filter" */
+export function renderSaveFilterForm(user, params) {
+  const title = "Save filter | CleanTech Index";
+  return {
+    title,
+    chunks: [
+      head(title, "Name and save your current filter.", null, null, "gate"),
+      navBar(user),
+      `<h1>Name this filter</h1>
+       <form method="POST" action="/saved-filters/confirm" style="max-width:360px">
+         ${Object.entries(params).map(([k, v]) =>
+           `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`
+         ).join("")}
+         <div class="form-row" style="flex-direction:column;align-items:stretch">
+           <input type="text" name="name" placeholder="e.g. Operational Solar" required style="width:100%">
+           <button class="cta" type="submit" style="margin-top:10px;text-align:center">Save</button>
+         </div>
+       </form>`,
+      tail,
+    ],
+  };
 }
 
 /** Styled 404. */

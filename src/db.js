@@ -158,3 +158,169 @@ export async function getMemberBySessionId(env, stripeSessionId) {
     .bind(stripeSessionId)
     .first();
 }
+
+// ─── User saved data ────────────────────────────────────────────────────────
+
+/** Toggle a bookmark. Returns true if now bookmarked, false if removed. */
+export async function toggleBookmark(env, userId, projectSlug) {
+  const existing = await env.DB.prepare(
+    `SELECT id FROM bookmarks WHERE user_id = ? AND project_slug = ?`
+  ).bind(userId, projectSlug).first();
+  if (existing) {
+    await env.DB.prepare(`DELETE FROM bookmarks WHERE user_id = ? AND project_slug = ?`)
+      .bind(userId, projectSlug).run();
+    return false;
+  }
+  await env.DB.prepare(`INSERT INTO bookmarks (user_id, project_slug) VALUES (?, ?)`)
+    .bind(userId, projectSlug).run();
+  return true;
+}
+
+/** Check if a project is bookmarked by a user. */
+export async function isBookmarked(env, userId, projectSlug) {
+  const row = await env.DB.prepare(
+    `SELECT 1 FROM bookmarks WHERE user_id = ? AND project_slug = ?`
+  ).bind(userId, projectSlug).first();
+  return !!row;
+}
+
+/** All bookmarks for a user, joined with project names. */
+export async function getUserBookmarks(env, userId) {
+  return (await env.DB.prepare(
+    `SELECT b.project_slug, p.project_name, p.technology_type, p.capacity_mw, p.status, p.state
+       FROM bookmarks b
+       LEFT JOIN infrastructure_projects p ON p.slug = b.project_slug
+      WHERE b.user_id = ?
+      ORDER BY b.created_at DESC`
+  ).bind(userId).all()).results;
+}
+
+/** All watchlists for a user. */
+export async function getUserWatchlists(env, userId) {
+  return (await env.DB.prepare(
+    `SELECT id, name, created_at FROM watchlists WHERE user_id = ? ORDER BY created_at DESC`
+  ).bind(userId).all()).results;
+}
+
+/** Items in a watchlist, joined with project names. */
+export async function getWatchlistItems(env, watchlistId) {
+  return (await env.DB.prepare(
+    `SELECT wi.project_slug, p.project_name, p.technology_type, p.capacity_mw, p.status, p.state
+       FROM watchlist_items wi
+       LEFT JOIN infrastructure_projects p ON p.slug = wi.project_slug
+      WHERE wi.watchlist_id = ?
+      ORDER BY wi.created_at DESC`
+  ).bind(watchlistId).all()).results;
+}
+
+/** Create a new watchlist. Returns the new id. */
+export async function createWatchlist(env, userId, name) {
+  const res = await env.DB.prepare(
+    `INSERT INTO watchlists (user_id, name) VALUES (?, ?)`
+  ).bind(userId, name).run();
+  return res.meta.last_row_id;
+}
+
+/** Delete a watchlist (cascades items). Verifies ownership. */
+export async function deleteWatchlist(env, userId, watchlistId) {
+  await env.DB.prepare(
+    `DELETE FROM watchlists WHERE id = ? AND user_id = ?`
+  ).bind(watchlistId, userId).run();
+}
+
+/** Toggle a project in a watchlist. Returns true if added, false if removed. Verifies ownership. */
+export async function toggleWatchlistItem(env, userId, watchlistId, projectSlug) {
+  const wl = await env.DB.prepare(
+    `SELECT id FROM watchlists WHERE id = ? AND user_id = ?`
+  ).bind(watchlistId, userId).first();
+  if (!wl) return null;
+
+  const existing = await env.DB.prepare(
+    `SELECT 1 FROM watchlist_items WHERE watchlist_id = ? AND project_slug = ?`
+  ).bind(watchlistId, projectSlug).first();
+  if (existing) {
+    await env.DB.prepare(
+      `DELETE FROM watchlist_items WHERE watchlist_id = ? AND project_slug = ?`
+    ).bind(watchlistId, projectSlug).run();
+    return false;
+  }
+  await env.DB.prepare(
+    `INSERT INTO watchlist_items (watchlist_id, project_slug) VALUES (?, ?)`
+  ).bind(watchlistId, projectSlug).run();
+  return true;
+}
+
+/** Upsert a note for a project. Empty string deletes it. */
+export async function saveNote(env, userId, projectSlug, note) {
+  if (!note.trim()) {
+    await env.DB.prepare(
+      `DELETE FROM project_notes WHERE user_id = ? AND project_slug = ?`
+    ).bind(userId, projectSlug).run();
+    return;
+  }
+  await env.DB.prepare(
+    `INSERT INTO project_notes (user_id, project_slug, note, updated_at)
+       VALUES (?, ?, ?, datetime('now'))
+       ON CONFLICT(user_id, project_slug)
+       DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at`
+  ).bind(userId, projectSlug, note.trim()).run();
+}
+
+/** Get a note for a specific project. */
+export async function getNote(env, userId, projectSlug) {
+  const row = await env.DB.prepare(
+    `SELECT note FROM project_notes WHERE user_id = ? AND project_slug = ?`
+  ).bind(userId, projectSlug).first();
+  return row?.note || "";
+}
+
+/** All notes for a user, joined with project names. */
+export async function getUserNotes(env, userId) {
+  return (await env.DB.prepare(
+    `SELECT n.project_slug, n.note, n.updated_at, p.project_name
+       FROM project_notes n
+       LEFT JOIN infrastructure_projects p ON p.slug = n.project_slug
+      WHERE n.user_id = ?
+      ORDER BY n.updated_at DESC`
+  ).bind(userId).all()).results;
+}
+
+/** Save a named filter. Returns new id. */
+export async function saveFilter(env, userId, name, filterJson) {
+  const res = await env.DB.prepare(
+    `INSERT INTO saved_filters (user_id, name, filter_json) VALUES (?, ?, ?)`
+  ).bind(userId, name, filterJson).run();
+  return res.meta.last_row_id;
+}
+
+/** Delete a saved filter. Verifies ownership. */
+export async function deleteFilter(env, userId, filterId) {
+  await env.DB.prepare(
+    `DELETE FROM saved_filters WHERE id = ? AND user_id = ?`
+  ).bind(filterId, userId).run();
+}
+
+/** All saved filters for a user. */
+export async function getUserFilters(env, userId) {
+  return (await env.DB.prepare(
+    `SELECT id, name, filter_json, created_at FROM saved_filters WHERE user_id = ? ORDER BY created_at DESC`
+  ).bind(userId).all()).results;
+}
+
+/** Full dashboard payload in one batch. */
+export async function getDashboardData(env, userId) {
+  const [bookmarks, notes, filters, watchlists] = await Promise.all([
+    getUserBookmarks(env, userId),
+    getUserNotes(env, userId),
+    getUserFilters(env, userId),
+    getUserWatchlists(env, userId),
+  ]);
+  // Fetch items for each watchlist
+  const watchlistsWithItems = await Promise.all(
+    watchlists.map(async (wl) => ({
+      ...wl,
+      items: await getWatchlistItems(env, wl.id),
+    }))
+  );
+  return { bookmarks, notes, filters, watchlists: watchlistsWithItems };
+}
