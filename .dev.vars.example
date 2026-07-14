@@ -8,3 +8,8 @@ SIGNING_SECRET="replace-with-64-hex-chars"
 STRIPE_SECRET_KEY="sk_test_xxx"
 STRIPE_WEBHOOK_SECRET="whsec_xxx"
 # STRIPE_PRICE_ID="price_xxx"
+
+# Magic-link email (required for /login). Get a free key at resend.com.
+# The "from" address defaults to "CleanTech Index <noreply@cleantech-index.com>".
+RESEND_API_KEY="re_xxx"
+# EMAIL_FROM="CleanTech Index <noreply@yourdomain.com>"

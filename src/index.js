@@ -59,6 +59,8 @@ import {
   sessionCookieHeader,
   clearSessionCookieHeader,
   getUserSessionToken,
+  checkRateLimit,
+  cleanupOldRateLimits,
 } from "./auth.js";
 import { sendMagicLink } from "./email.js";
 
@@ -106,7 +108,7 @@ export default {
       // Auth — magic link
       if (path === "/login" && method === "GET") return handleLoginPage(request, url);
       if (path === "/auth/login" && method === "POST") return handleAuthLogin(request, env, origin);
-      if (path === "/auth/verify" && method === "GET") return handleAuthVerify(url, env, origin);
+      if (path === "/auth/verify" && method === "GET") return handleAuthVerify(url, env, origin, ctx);
       if (path === "/auth/logout" && method === "POST") return handleAuthLogout(request, env, origin);
 
       // User dashboard
@@ -298,6 +300,15 @@ async function handleAuthLogin(request, env, origin) {
     });
   }
 
+  const ip = request.headers.get("CF-Connecting-IP");
+  const allowed = await checkRateLimit(env, ip);
+  if (!allowed) {
+    return html(renderLogin({ error: "Too many sign-in attempts. Please wait 15 minutes and try again." }).chunks, {
+      status: 429,
+      headers: { "cache-control": "private, no-store", "Retry-After": "900" },
+    });
+  }
+
   const userId = await upsertUser(env, raw);
   const token = await createMagicToken(env, userId);
   const magicUrl = `${origin}/auth/verify?token=${encodeURIComponent(token)}`;
@@ -315,7 +326,7 @@ async function handleAuthLogin(request, env, origin) {
   return Response.redirect(`${origin}/login?sent=1`, 303);
 }
 
-async function handleAuthVerify(url, env, origin) {
+async function handleAuthVerify(url, env, origin, ctx) {
   const token = url.searchParams.get("token") || "";
   const userId = await consumeMagicToken(env, token);
 
@@ -327,6 +338,8 @@ async function handleAuthVerify(url, env, origin) {
   }
 
   const sessionToken = await createSession(env, userId);
+  // Prune old rate-limit rows after the response is sent — fire-and-forget.
+  ctx.waitUntil(cleanupOldRateLimits(env));
   const headers = new Headers({ Location: `${origin}/dashboard` });
   headers.append("Set-Cookie", sessionCookieHeader(sessionToken));
   return new Response(null, { status: 303, headers });
