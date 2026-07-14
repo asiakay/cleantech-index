@@ -43,6 +43,8 @@ import {
   saveFilter,
   deleteFilter,
   isMemberEmail,
+  getDistinctStates,
+  VALID_STATES,
 } from "./db.js";
 import {
   verifyStripeSignature,
@@ -165,10 +167,14 @@ async function handleHome(request, env, url) {
   const sort   = VALID_SORTS.has(url.searchParams.get("sort")) ? url.searchParams.get("sort") : "capacity";
   const dir    = VALID_DIRS.has(url.searchParams.get("dir"))   ? url.searchParams.get("dir")  : "desc";
   const status = VALID_STATUSES.has(url.searchParams.get("status")) ? url.searchParams.get("status") : "";
+  const state  = VALID_STATES.has(url.searchParams.get("state"))   ? url.searchParams.get("state")   : "";
   const user   = await resolveUser(request, env);
-  const data   = await getFeaturedProjects(env, page, 20, sort, dir, status);
+  const [data, states] = await Promise.all([
+    getFeaturedProjects(env, page, 20, sort, dir, status, state),
+    getDistinctStates(env),
+  ]);
   const cacheControl = user ? "private, no-store" : "public, max-age=300";
-  return html(renderHome(data, user).chunks, { headers: { "cache-control": cacheControl } });
+  return html(renderHome({ ...data, states }, user).chunks, { headers: { "cache-control": cacheControl } });
 }
 
 async function handleSitemap(env, origin) {
@@ -439,7 +445,7 @@ async function handleSaveFilterPrompt(request, env, origin) {
   if (!user) return Response.redirect(`${origin}/login`, 303);
   const form = await request.formData();
   const params = {};
-  for (const key of ["sort", "dir", "status", "page"]) {
+  for (const key of ["sort", "dir", "status", "state", "page"]) {
     const v = (form.get(key) || "").toString();
     if (v) params[key] = v;
   }
@@ -453,7 +459,7 @@ async function handleSaveFilterConfirm(request, env, origin) {
   const name = (form.get("name") || "").toString().trim().slice(0, 60);
   if (!name) return Response.redirect(`${origin}/dashboard`, 303);
   const params = {};
-  for (const key of ["sort", "dir", "status", "page"]) {
+  for (const key of ["sort", "dir", "status", "state", "page"]) {
     const v = (form.get(key) || "").toString();
     if (v) params[key] = v;
   }
