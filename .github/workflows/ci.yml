@@ -31,23 +31,49 @@ jobs:
           check-latest: true
           cache: npm
       - run: npm ci
+
+      # Validate that required secrets are present before touching Cloudflare.
+      # GitHub evaluates ${{ secrets.X }} to an empty string when the secret is
+      # absent, which would silently overwrite the real value. Pass secrets only
+      # through env: so they never appear in the evaluated YAML, then guard with
+      # a shell check that fails fast on an empty value.
+      - name: Validate required secrets
+        env:
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          fail=0
+          [ -z "$SIGNING_SECRET" ] && echo "ERROR: SIGNING_SECRET is not set in GitHub secrets" && fail=1
+          [ -z "$RESEND_API_KEY"  ] && echo "ERROR: RESEND_API_KEY is not set in GitHub secrets"  && fail=1
+          [ "$fail" -eq 1 ] && exit 1
+          echo "Required secrets present."
+
       # Apply any new D1 migrations to the production database, then deploy.
       - name: Apply D1 migrations (remote)
         run: npx wrangler d1 migrations apply cleantech_index --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       # Push secrets from GitHub into Cloudflare's encrypted secret store.
-      # Add a new line here whenever you add a new secret.
+      # All secrets are passed via env: fields so the shell sees real values,
+      # never the evaluated ${{ }} expression (which is empty when a secret is
+      # not set).  Required secrets were already validated above; optional ones
+      # use `|| true` so a missing Stripe key doesn't block the deploy.
       - name: Sync secrets to Cloudflare
-        run: |
-          echo "${{ secrets.SIGNING_SECRET }}"      | npx wrangler secret put SIGNING_SECRET
-          echo "${{ secrets.RESEND_API_KEY }}"      | npx wrangler secret put RESEND_API_KEY
-          echo "${{ secrets.STRIPE_SECRET_KEY }}"   | npx wrangler secret put STRIPE_SECRET_KEY      || true
-          echo "${{ secrets.STRIPE_WEBHOOK_SECRET }}" | npx wrangler secret put STRIPE_WEBHOOK_SECRET || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: |
+          printf '%s' "$SIGNING_SECRET"       | npx wrangler secret put SIGNING_SECRET
+          printf '%s' "$RESEND_API_KEY"        | npx wrangler secret put RESEND_API_KEY
+          [ -n "$STRIPE_SECRET_KEY" ]    && printf '%s' "$STRIPE_SECRET_KEY"    | npx wrangler secret put STRIPE_SECRET_KEY    || true
+          [ -n "$STRIPE_WEBHOOK_SECRET" ] && printf '%s' "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET || true
+
       - name: Deploy Worker
         run: npx wrangler deploy
         env:

@@ -100,3 +100,37 @@ export function clearSessionCookieHeader() {
 export function getUserSessionToken(cookies) {
   return cookies[USER_SESSION_COOKIE] || null;
 }
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+
+const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Increment the per-IP counter for the current 15-minute bucket.
+ * Returns true if the request is allowed, false if the limit is exceeded.
+ * When ip is falsy (dev / no CF-Connecting-IP) the call is always allowed.
+ */
+export async function checkRateLimit(env, ip) {
+  if (!ip) return true;
+  const bucket = Math.floor(Date.now() / RATE_LIMIT_WINDOW_MS);
+  const key = `${ip}:${bucket}`;
+  const row = await env.DB.prepare(
+    `INSERT INTO auth_rate_limits (window_key, count) VALUES (?, 1)
+     ON CONFLICT(window_key) DO UPDATE SET count = count + 1
+     RETURNING count`
+  ).bind(key).first();
+  return row.count <= RATE_LIMIT_MAX;
+}
+
+/**
+ * Delete rate-limit rows older than the previous 15-minute bucket.
+ * Safe to call from ctx.waitUntil() — runs after response is sent.
+ */
+export async function cleanupOldRateLimits(env) {
+  const currentBucket = Math.floor(Date.now() / RATE_LIMIT_WINDOW_MS);
+  await env.DB.prepare(
+    `DELETE FROM auth_rate_limits
+      WHERE CAST(substr(window_key, instr(window_key, ':') + 1) AS INTEGER) < ?`
+  ).bind(currentBucket - 1).run();
+}

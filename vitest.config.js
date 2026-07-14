@@ -20,6 +20,7 @@ export default defineConfig({
             STRIPE_API_BASE: "https://stripe.test.invalid", // outbound Stripe calls are mocked in tests
             PUBLIC_ORIGIN: "https://cleantech.test",
             MEMBER_TOKEN_TTL_DAYS: "365",
+            RESEND_API_KEY: "re_test_dummy",
           },
         },
       };

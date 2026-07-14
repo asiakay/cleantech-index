@@ -18,6 +18,9 @@ import {
   renderAccount,
   renderNotFound,
   renderPaywall,
+  renderLogin,
+  renderDashboard,
+  renderSaveFilterForm,
   FREE_LIMIT,
 } from "../src/render.js";
 
@@ -277,5 +280,190 @@ describe("renderNotFound", () => {
   });
   it("title contains 'Not found'", () => {
     expect(renderNotFound("https://x.test").title).toContain("Not found");
+  });
+});
+
+const fakeUser = { id: 1, email: "user@example.com" };
+
+describe("renderLogin", () => {
+  it("renders the email form by default", () => {
+    const body = renderLogin().chunks.join("");
+    expect(body).toContain('action="/auth/login"');
+    expect(body).toContain('type="email"');
+  });
+
+  it("shows the check-your-email view when sent=true", () => {
+    const body = renderLogin({ sent: true }).chunks.join("");
+    expect(body).toContain("Check your email");
+    expect(body).not.toContain('action="/auth/login"');
+  });
+
+  it("shows an error message when error is set", () => {
+    const body = renderLogin({ error: "Bad email." }).chunks.join("");
+    expect(body).toContain("Bad email.");
+  });
+
+  it("shows a flash message when flash is set", () => {
+    const body = renderLogin({ flash: "Signed out." }).chunks.join("");
+    expect(body).toContain("Signed out.");
+  });
+
+  it("escapes HTML in error messages", () => {
+    const body = renderLogin({ error: "<script>alert(1)</script>" }).chunks.join("");
+    expect(body).not.toContain("<script>");
+  });
+});
+
+describe("renderDashboard", () => {
+  const emptyData = { bookmarks: [], notes: [], filters: [], watchlists: [] };
+
+  it("shows the user email", () => {
+    const body = renderDashboard(fakeUser, emptyData).chunks.join("");
+    expect(body).toContain("user@example.com");
+  });
+
+  it("shows all four section headings", () => {
+    const body = renderDashboard(fakeUser, emptyData).chunks.join("");
+    expect(body).toContain("Bookmarks");
+    expect(body).toContain("Watchlists");
+    expect(body).toContain("Notes");
+    expect(body).toContain("Saved filters");
+  });
+
+  it("shows empty-state text when no data", () => {
+    const body = renderDashboard(fakeUser, emptyData).chunks.join("");
+    expect(body).toContain("No bookmarks");
+  });
+
+  it("lists bookmarks", () => {
+    const data = {
+      ...emptyData,
+      bookmarks: [{ project_slug: "mustang-ridge-solar", project_name: "Mustang Ridge Solar", technology_type: "Solar PV", capacity_mw: 250, status: "Operational", state: "TX" }],
+    };
+    const body = renderDashboard(fakeUser, data).chunks.join("");
+    expect(body).toContain("Mustang Ridge Solar");
+    expect(body).toContain("/project/mustang-ridge-solar");
+  });
+
+  it("lists watchlists with their items", () => {
+    const data = {
+      ...emptyData,
+      watchlists: [{
+        id: 42, name: "My Portfolio", created_at: "2024-01-01",
+        items: [{ project_slug: "llano-battery-hub", project_name: "Llano Battery Hub" }],
+      }],
+    };
+    const body = renderDashboard(fakeUser, data).chunks.join("");
+    expect(body).toContain("My Portfolio");
+    expect(body).toContain("Llano Battery Hub");
+  });
+
+  it("lists saved filters with links", () => {
+    const data = {
+      ...emptyData,
+      filters: [{ id: 7, name: "Big Solar", filter_json: JSON.stringify({ sort: "capacity", dir: "desc" }) }],
+    };
+    const body = renderDashboard(fakeUser, data).chunks.join("");
+    expect(body).toContain("Big Solar");
+    expect(body).toContain("/?sort=capacity");
+  });
+
+  it("shows flash message", () => {
+    const body = renderDashboard(fakeUser, emptyData, "Filter saved.").chunks.join("");
+    expect(body).toContain("Filter saved.");
+  });
+
+  it("escapes HTML in watchlist names (XSS guard)", () => {
+    const data = {
+      ...emptyData,
+      watchlists: [{ id: 1, name: "<script>alert(1)</script>", created_at: "2024-01-01", items: [] }],
+    };
+    const body = renderDashboard(fakeUser, data).chunks.join("");
+    expect(body).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("escapes HTML in filter names (XSS guard)", () => {
+    const data = {
+      ...emptyData,
+      filters: [{ id: 1, name: '<img src=x onerror=alert(1)>', filter_json: "{}" }],
+    };
+    const body = renderDashboard(fakeUser, data).chunks.join("");
+    expect(body).not.toContain("<img src=x");
+  });
+});
+
+describe("renderSaveFilterForm", () => {
+  it("renders a name input and hidden filter fields", () => {
+    const body = renderSaveFilterForm(fakeUser, { sort: "capacity", dir: "asc" }).chunks.join("");
+    expect(body).toContain('action="/saved-filters/confirm"');
+    expect(body).toContain('name="name"');
+    expect(body).toContain('value="capacity"');
+    expect(body).toContain('value="asc"');
+  });
+
+  it("only outputs hidden fields for keys that are present", () => {
+    const body = renderSaveFilterForm(fakeUser, { sort: "name" }).chunks.join("");
+    expect(body).toContain('name="sort"');
+    expect(body).not.toContain('name="dir"');
+  });
+});
+
+describe("renderProjectPage with userCtx", () => {
+  it("shows bookmark button for a logged-in user", () => {
+    const ctx = { user: fakeUser, bookmarked: false, note: "", watchlists: [] };
+    const body = renderProjectPage(projectRow, projectRow.vendors, 2, "https://x.test", ctx).chunks.join("");
+    expect(body).toContain("Bookmark");
+  });
+
+  it("shows different label when already bookmarked", () => {
+    const ctx = { user: fakeUser, bookmarked: true, note: "", watchlists: [] };
+    const body = renderProjectPage(projectRow, projectRow.vendors, null, "https://x.test", ctx).chunks.join("");
+    expect(body).toContain("Bookmarked");
+  });
+
+  it("shows sign-in prompt when no user context", () => {
+    const body = renderProjectPage(projectRow, projectRow.vendors, 2, "https://x.test").chunks.join("");
+    expect(body).toContain("/login");
+  });
+
+  it("shows note textarea for logged-in user", () => {
+    const ctx = { user: fakeUser, bookmarked: false, note: "My note", watchlists: [] };
+    const body = renderProjectPage(projectRow, projectRow.vendors, null, "https://x.test", ctx).chunks.join("");
+    expect(body).toContain("My note");
+    expect(body).toContain("textarea");
+  });
+
+  it("shows watchlist dropdown when user has watchlists", () => {
+    const ctx = {
+      user: fakeUser, bookmarked: false, note: "",
+      watchlists: [{ id: 1, name: "My List" }],
+    };
+    const body = renderProjectPage(projectRow, projectRow.vendors, null, "https://x.test", ctx).chunks.join("");
+    expect(body).toContain("My List");
+  });
+});
+
+describe("renderHome with user", () => {
+  const stats = { total_projects: 1, total_gw: 0.25, total_states: 1, count_operational: 1, count_under_construction: 0, count_planned: 0 };
+  const projects = [{ project_name: "Mustang Ridge Solar", slug: "mustang-ridge-solar", technology_type: "Solar PV", capacity_mw: 250, status: "Operational", state: "TX" }];
+
+  it("shows Save filter button when user is logged in", () => {
+    const body = renderHome({ projects, stats }, fakeUser).chunks.join("");
+    expect(body).toContain("Save filter");
+  });
+
+  it("does not show Save filter button for anonymous users", () => {
+    const body = renderHome({ projects, stats }).chunks.join("");
+    expect(body).not.toContain("Save filter");
+  });
+
+  it("shows Sign in link in nav for anonymous users", () => {
+    const body = renderHome({ projects, stats }).chunks.join("");
+    expect(body).toContain("Sign in");
+  });
+
+  it("shows My saved items link in nav for logged-in users", () => {
+    const body = renderHome({ projects, stats }, fakeUser).chunks.join("");
+    expect(body).toContain("My saved items");
   });
 });
