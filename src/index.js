@@ -317,7 +317,10 @@ async function handleAuthLogin(request, env, origin) {
     await sendMagicLink(env, { to: raw, magicUrl });
   } catch (err) {
     console.error("sendMagicLink failed", err);
-    return html(renderLogin({ error: "Failed to send email. Please try again." }).chunks, {
+    const hint = err.message?.startsWith("Resend API error")
+      ? " (check RESEND_API_KEY and EMAIL_FROM in Cloudflare secrets)"
+      : "";
+    return html(renderLogin({ error: `Failed to send email. Please try again.${hint}` }).chunks, {
       status: 500,
       headers: { "cache-control": "private, no-store" },
     });

@@ -477,9 +477,10 @@ export function renderLogin(opts = {}) {
        ${error ? `<p class="msg err">${esc(error)}</p>` : ""}
        ${flash ? `<p class="msg ok">${esc(flash)}</p>` : ""}
        <form method="POST" action="/auth/login" style="max-width:360px;margin-top:8px">
-         <div class="form-row" style="flex-direction:column;align-items:stretch">
-           <input type="email" name="email" placeholder="you@example.com" required autocomplete="email" style="width:100%">
-           <button class="cta" type="submit" style="margin-top:10px;text-align:center">Send sign-in link</button>
+         <div style="display:flex;flex-direction:column;gap:10px">
+           <input type="email" name="email" placeholder="you@example.com" required autocomplete="email"
+                  style="width:100%;padding:10px 14px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink);outline:none">
+           <button class="cta" type="submit" style="text-align:center">Send sign-in link</button>
          </div>
        </form>
        <p style="font-size:13px;color:var(--mut);margin-top:18px">No password needed. Free to create an account.</p>`;

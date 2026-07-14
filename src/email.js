@@ -5,7 +5,9 @@
 export async function sendMagicLink(env, { to, magicUrl }) {
   if (!env.RESEND_API_KEY) throw new Error("RESEND_API_KEY is not set");
 
-  const from = env.EMAIL_FROM || "CleanTech Index <noreply@cleantech-index.com>";
+  // onboarding@resend.dev is Resend's pre-verified shared sender — works with any API key
+  // without domain setup. Set EMAIL_FROM to an address on your own verified domain in prod.
+  const from = env.EMAIL_FROM || "CleanTech Index <onboarding@resend.dev>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
