@@ -69,10 +69,10 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: |
-          printf '%s' "$SIGNING_SECRET"       | npx wrangler secret put SIGNING_SECRET
-          printf '%s' "$RESEND_API_KEY"        | npx wrangler secret put RESEND_API_KEY
-          [ -n "$STRIPE_SECRET_KEY" ]    && printf '%s' "$STRIPE_SECRET_KEY"    | npx wrangler secret put STRIPE_SECRET_KEY    || true
-          [ -n "$STRIPE_WEBHOOK_SECRET" ] && printf '%s' "$STRIPE_WEBHOOK_SECRET" | npx wrangler secret put STRIPE_WEBHOOK_SECRET || true
+          printf '%s' "$SIGNING_SECRET"       | npx wrangler versions secret put SIGNING_SECRET
+          printf '%s' "$RESEND_API_KEY"        | npx wrangler versions secret put RESEND_API_KEY
+          [ -n "$STRIPE_SECRET_KEY" ]    && printf '%s' "$STRIPE_SECRET_KEY"    | npx wrangler versions secret put STRIPE_SECRET_KEY    || true
+          [ -n "$STRIPE_WEBHOOK_SECRET" ] && printf '%s' "$STRIPE_WEBHOOK_SECRET" | npx wrangler versions secret put STRIPE_WEBHOOK_SECRET || true
 
       - name: Deploy Worker
         run: npx wrangler deploy

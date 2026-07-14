@@ -2,6 +2,10 @@ name = "cleantech-index"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
 
+[observability.logs]
+enabled = false
+invocation_logs = true
+
 # D1 binding. Create the DB first, then paste the returned database_id here:
 #   npx wrangler d1 create cleantech_index
 [[d1_databases]]
